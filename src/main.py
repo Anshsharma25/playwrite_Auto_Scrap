@@ -12,9 +12,6 @@ def run():
     """
     Run the Playwright scraping job. Always runs headless (no UI) and does not pause.
     Raises ValueError for login failures propagated from auth.login_and_continue.
-
-    Only the following environment/override keys are honored (if present):
-      - RUT, CLAVE, ECF_TIPO, ECF_FROM_DATE, ECF_TO_DATE
     """
     # reload config module so runtime overrides are picked up
     import src.config as config
@@ -72,7 +69,7 @@ def run():
                 pass
             return
 
-        # Optionally fill the tipo/date and click consultar (keeps behavior as before)
+        # Optionally fill the tipo/date and click consultar
         try:
             final_page, results_url = auth.fill_cfe_and_consult(
                 final_page,
@@ -86,7 +83,7 @@ def run():
             print('[WARN] fill_cfe_and_consult failed:', e)
 
 
-        # Collect links from the results grid and extract fields (this now does in-place pagination & saving)
+        # Collect links from the results grid and extract fields
         try:
             link_selector = getattr(sel, "GRID_LINKS_SELECTOR", None)
             parent_selector = getattr(sel, "GRID_PARENT_SELECTOR", None)
@@ -116,3 +113,4 @@ def run():
 
         browser.close()
         print('[INFO] Browser closed. Done')
+ 

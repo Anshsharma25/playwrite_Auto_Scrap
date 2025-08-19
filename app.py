@@ -8,7 +8,6 @@ from pathlib import Path
 import importlib
 import src.config as config
 from src import main as cfe_main
-#kdjba
 
 app = Flask(__name__, template_folder="templates")
 
@@ -124,7 +123,6 @@ def run_scraper():
     except Exception as e:
         traceback.print_exc()
         return jsonify({'ok': False, 'error': 'Internal Server Error (check logs)'}), 500
-
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import csv
 from datetime import datetime
 from typing import Optional, Tuple, List
 import pandas as pd
+from pathlib import Path
 from playwright.sync_api import TimeoutError, Error
 
 from src import selectors as sel
@@ -21,9 +22,15 @@ def _dump_debug(page, prefix="debug"):
         ts = int(time.time())
         out_png = f"{prefix}_{ts}.png"
         out_html = f"{prefix}_{ts}.html"
-        page.screenshot(path=out_png, full_page=True)
-        with open(out_html, "w", encoding="utf-8") as f:
-            f.write(page.content())
+        try:
+            page.screenshot(path=out_png, full_page=True)
+        except Exception:
+            pass
+        try:
+            with open(out_html, "w", encoding="utf-8") as f:
+                f.write(page.content())
+        except Exception:
+            pass
         print(f"[DEBUG] Saved debug files: {out_png} and {out_html}")
     except Exception as e:
         print("[DEBUG] Could not save debug files:", e)
@@ -33,7 +40,7 @@ def _wait_for_url_contains(page, substring, timeout=60):
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            url = page.url
+            url = getattr(page, "url", "") or ""
         except Exception:
             url = ""
         if substring in url:
@@ -109,8 +116,7 @@ def login_and_continue(page, post_click_wait: int = 5, wait_for_selector: Option
     """
     Login to the site, press Continue and then click the 'Consulta de CFE recibidos' entry.
     Returns (final_page, final_url).
-    This function is robust and tries frames + fallbacks like the prior version.
-    Raises ValueError on likely login failure (keeps behavior for caller to surface).
+    Raises ValueError on likely login failure.
     """
     try:
         print("[INFO] Waiting for initial page load (networkidle)...")
@@ -226,7 +232,7 @@ def login_and_continue(page, post_click_wait: int = 5, wait_for_selector: Option
 
         print("[INFO] Waiting for 'selecciona-entidad' in URL (up to 60s)...")
         reached = _wait_for_url_contains(page, "selecciona-entidad", timeout=60)
-        print(f"[DEBUG] URL after login attempt: {page.url}")
+        print(f"[DEBUG] URL after login attempt: {getattr(page, 'url', '')}")
         if not reached:
             print("[WARN] 'selecciona-entidad' not observed; will still search for Continue button.")
 
@@ -234,10 +240,10 @@ def login_and_continue(page, post_click_wait: int = 5, wait_for_selector: Option
         if not cont_el:
             print("[WARN] Continue button not found. Dumping debug and returning current page.")
             _dump_debug(page)
-            return page, page.url
+            return page, getattr(page, "url", "")
 
         final_page = page
-        final_url = page.url
+        final_url = getattr(page, "url", "")
 
         print("[INFO] Clicking Continue...")
         try:
@@ -252,21 +258,21 @@ def login_and_continue(page, post_click_wait: int = 5, wait_for_selector: Option
                 except Exception:
                     pass
             final_page = new_page
-            final_url = new_page.url
+            final_url = getattr(new_page, "url", "")
             print("[INFO] Landed on new tab after Continue:", final_url)
         except TimeoutError:
             print("[DEBUG] No new tab; waiting for same-page navigation...")
             try:
                 page.wait_for_navigation(timeout=30000)
                 final_page = page
-                final_url = page.url
+                final_url = getattr(page, "url", "")
             except Exception:
                 try:
                     page.wait_for_load_state("networkidle", timeout=30000)
                 except Exception:
                     pass
                 final_page = page
-                final_url = page.url
+                final_url = getattr(page, "url", "")
             print("[INFO] After Continue (same page):", final_url)
 
         if wait_for_selector:
@@ -280,7 +286,7 @@ def login_and_continue(page, post_click_wait: int = 5, wait_for_selector: Option
         try:
             with final_page.expect_navigation(timeout=30000):
                 final_page.click('text="Consulta de CFE recibidos"')
-            final_url = final_page.url
+            final_url = getattr(final_page, "url", "")
             print("[INFO] Landed on Consulta de CFE recibidos:", final_url)
         except Exception:
             # try frames fallback
@@ -300,7 +306,6 @@ def login_and_continue(page, post_click_wait: int = 5, wait_for_selector: Option
         return final_page, final_url
 
     except ValueError:
-        # re-raise to let caller display message
         raise
     except Error as e:
         print("[ERROR] Playwright Error:", e)
@@ -316,7 +321,6 @@ def login_and_continue(page, post_click_wait: int = 5, wait_for_selector: Option
 # ---------------------------
 # Fill filters / Consult
 # ---------------------------
-
 def _click_maybe_in_frames(page, selector, timeout=2000):
     try:
         page.click(selector, timeout=timeout)
@@ -362,14 +366,7 @@ def _set_select_value(frame_or_page, element_handle, value):
         pass
     try:
         element_handle.evaluate(
-            """(el, val) => {
-                el.value = val;
-                el.dispatchEvent(new Event('input',{bubbles:true}));
-                el.dispatchEvent(new Event('change',{bubbles:true}));
-                el.dispatchEvent(new Event('blur',{bubbles:true}));
-                try{ if(window.gx && gx.evt && typeof gx.evt.onchange === 'function') gx.evt.onchange(el);}catch(e){}
-                return true;
-            }""",
+            "(el, val) => { el.value = val; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); el.dispatchEvent(new Event('blur',{bubbles:true})); try{ if(window.gx && gx.evt && typeof gx.evt.onchange === 'function') gx.evt.onchange(el);}catch(e){} return true; }",
             value
         )
         return True
@@ -377,7 +374,7 @@ def _set_select_value(frame_or_page, element_handle, value):
         pass
     try:
         element_handle.click()
-        frame_or_page.click(f'{sel.SELECT_TIPO_CFE} >> option[value="{value}"]', timeout=2000)
+        frame_or_page.click(f'{sel.SELECT_TIPO_CFE} >> option[value=\"{value}\"]', timeout=2000)
         return True
     except Exception:
         pass
@@ -387,16 +384,7 @@ def _set_select_value(frame_or_page, element_handle, value):
 def _set_input_value_with_fallback(frame_or_page, element_handle, value):
     try:
         element_handle.evaluate(
-            """(el, val) => {
-                try{ el.focus && el.focus(); }catch(e){}
-                el.value = val;
-                el.dispatchEvent(new Event('input',{bubbles:true}));
-                el.dispatchEvent(new Event('change',{bubbles:true}));
-                el.dispatchEvent(new Event('blur',{bubbles:true}));
-                try{ if(window.gx && gx.evt && typeof gx.evt.onchange === 'function') gx.evt.onchange(el); }catch(e){}
-                try{ if(window.gx && gx.date && typeof gx.date.valid_date === 'function') { try{ gx.date.valid_date(el,10,'DMY',0,24,'spa',false,0);}catch(e){} } }catch(e){}
-                return true;
-            }""",
+            "(el, val) => { try{ el.focus && el.focus(); }catch(e){} el.value = val; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); el.dispatchEvent(new Event('blur',{bubbles:true})); try{ if(window.gx && gx.evt && typeof gx.evt.onchange === 'function') gx.evt.onchange(el); }catch(e){} try{ if(window.gx && gx.date && typeof gx.date.valid_date === 'function') { try{ gx.date.valid_date(el,10,'DMY',0,24,'spa',false,0);}catch(e){} } }catch(e){} return true; }",
             value
         )
         return True
@@ -464,7 +452,7 @@ def fill_cfe_and_consult(
                 clicked = _click_maybe_in_frames(page, sel.BUTTON_CONSULTAR)
                 if not clicked:
                     raise Exception("Could not click Consultar")
-            final_url = page.url
+            final_url = getattr(page, "url", "")
             final_page = page
         except Exception:
             # maybe new tab
@@ -479,19 +467,19 @@ def fill_cfe_and_consult(
                 except Exception:
                     pass
                 final_page = new_page
-                final_url = new_page.url
+                final_url = getattr(new_page, "url", "")
             except Exception:
                 # fallback click then wait
                 clicked_any = _click_maybe_in_frames(page, sel.BUTTON_CONSULTAR)
                 if not clicked_any:
                     _dump_debug(page)
-                    return page, page.url
+                    return page, getattr(page, "url", "")
                 try:
                     page.wait_for_load_state("networkidle", timeout=30000)
                 except Exception:
                     pass
                 final_page = page
-                final_url = page.url
+                final_url = getattr(page, "url", "")
 
         if wait_after_result and wait_after_result > 0:
             time.sleep(wait_after_result)
@@ -507,7 +495,6 @@ def fill_cfe_and_consult(
 # ---------------------------
 # Grid scanning / extraction helpers
 # ---------------------------
-
 def _try_get_text(element):
     if element is None:
         return ""
@@ -526,15 +513,13 @@ def _try_get_text(element):
         except Exception:
             return ""
 
+
 def _sanitize_fecha_emision(value: str) -> str:
-    """
-    Trim the last 5 characters from Fecha de Emision (if any).
-    Keeps empty string if there's nothing meaningful.
-    """
     if not value:
         return ""
     v = str(value).strip()
     return v[:-5] if len(v) > 5 else ""
+
 
 def _extract_fields_from_page(p):
     mapping = {
@@ -554,7 +539,6 @@ def _extract_fields_from_page(p):
         "Neto Iva Tasa Minima": ["#span_CTLEFACCFETOTALMNTNETOIVATTM", '[id*="TOTALMNTNETOIVATTM"]'],
         "Neto Iva Otra Tasa": ["#span_CTLEFACCFETOTALMNTNETOIVATTO", '[id*="TOTALMNTNETOIVATTO"]'],
         "Monto Total": ["#span_CTLEFACCFETOTALMONTOTOTAL", '[id*="TOTALMONTOTOTAL"]'],
-        # updated selector for Monto Retenido (matches element id you pasted)
         "Monto Retenido": ['#span_CTLEFACCFETOTALMONTORET', '[id*="CTLEFACCFETOTALMONTORET"]', '.TextView#TEXTBLOCK64'],
         "Monto Credito Fiscal": ["#span_CTLEFACCFETOTALMONTCREDFISC", '[id*="TOTALMONTCREDFISC"]'],
         "Monto No facturable": ["#span_CTLEFACCFEMONTONOFACT", '[id*="MONTONOFACT"]'],
@@ -581,17 +565,12 @@ def _extract_fields_from_page(p):
 
 
 def _collect_candidate_urls(page, parent_selector=None, link_selector=None) -> List[str]:
-    """
-    Scan the page and all frames and return a list of candidate URLs found in href attributes
-    or inside onclick attributes. Makes relative URLs absolute.
-    """
     urls = []
     frames_to_search = [page] + list(page.frames)
     tried = set()
 
     for p in frames_to_search:
         base = getattr(p, 'url', '') or getattr(page, 'url', '') or ''
-        # if user provided a selector, use it
         selectors = [link_selector] if link_selector else [
             f"{parent_selector} a[href]" if parent_selector else "a[href]",
             f"{parent_selector} img[src]" if parent_selector else "img[src]",
@@ -618,7 +597,6 @@ def _collect_candidate_urls(page, parent_selector=None, link_selector=None) -> L
 
                 candidate = href or src or ''
                 if candidate and not candidate.lower().startswith('javascript') and candidate.strip() != '#':
-                    # make absolute
                     try:
                         absurl = urllib.parse.urljoin(base, candidate)
                     except Exception:
@@ -628,9 +606,7 @@ def _collect_candidate_urls(page, parent_selector=None, link_selector=None) -> L
                         urls.append(absurl)
                         continue
 
-                # fallback: try to extract URL from onclick text
                 if onclick:
-                    # look for quoted http(s) URL inside onclick
                     m = re.search(r"['\"](https?://[^'\"]+)['\"]", onclick)
                     if m:
                         absurl = m.group(1)
@@ -638,7 +614,6 @@ def _collect_candidate_urls(page, parent_selector=None, link_selector=None) -> L
                             tried.add(absurl)
                             urls.append(absurl)
                             continue
-                    # sometimes onclick calls open('/path', ...)
                     m2 = re.search(r"open\(['\"]([^'\"]+)['\"]", onclick)
                     if m2:
                         try:
@@ -653,10 +628,6 @@ def _collect_candidate_urls(page, parent_selector=None, link_selector=None) -> L
 
 
 def _gather_candidate_link_elements(page, parent_selector=None, link_selector=None):
-    """
-    Legacy fallback: returns list of (frame_or_page, element_handle) that appear to be links/buttons/images for each row.
-    Kept for backward compatibility but the main collector uses URLs from _collect_candidate_urls.
-    """
     candidates = []
     frames_to_search = [page] + list(page.frames)
     tried = set()
@@ -739,10 +710,6 @@ def _gather_candidate_link_elements(page, parent_selector=None, link_selector=No
 # click Next only (no re-fill)
 # ---------------------------
 def click_next_only(page) -> bool:
-    """
-    Find the in-grid 'Next' image/button and click it without re-running the filters.
-    Returns True if a click was performed, False otherwise.
-    """
     candidates = [
         'input#W0127SIGUIENTE',
         'input[name="W0127SIGUIENTE"]',
@@ -786,11 +753,6 @@ def go_to_consulta_and_click_next(page,
                                  date_from: Optional[str] = None,
                                  date_to: Optional[str] = None,
                                  wait_after_fill: float = 2.0) -> Tuple[object, str]:
-    """
-    Navigate to consulta page (if needed), run fill_cfe_and_consult once to ensure grid is loaded,
-    then click the Next image/button and return (final_page, url).
-    This function is intended for one-off navigation/post-action, not for in-place pagination loops.
-    """
     try:
         try:
             cur_url = getattr(page, "url", "") or ""
@@ -839,6 +801,168 @@ def go_to_consulta_and_click_next(page,
             pass
         raise
 
+
+# ---------------------------
+# New: export XLS helpers (integrated)
+# ---------------------------
+def click_iframe_image_and_open(page, wait_seconds: int = 5):
+    try:
+        print("[INFO] Looking for efacConsultasMenuServFE iframe...")
+        iframe_el = page.query_selector('iframe[src*="efacConsultasMenuServFE"]') or page.query_selector('iframe[id^="gxpea"]')
+        if not iframe_el:
+            for f in page.query_selector_all("iframe"):
+                src = f.get_attribute("src") or ""
+                if "efacConsultasMenuServFE" in src or "efacconsmnuservredireccion" in src:
+                    iframe_el = f
+                    break
+
+        if not iframe_el:
+            print("[ERROR] Target iframe not found on the page.")
+            _dump_debug(page)
+            return None
+
+        frame = iframe_el.content_frame()
+        if not frame:
+            print("[ERROR] Could not access iframe content frame.")
+            _dump_debug(page)
+            return None
+
+        print("[INFO] Got content frame. Looking for image/link inside frame...")
+
+        selectors_to_try = [
+            'a[href*="efacconsultatwebsobrecfe"]',
+            'a:has(img[src*="K2BActionDisplay.gif"])',
+            'a:has(img[id^="vCOLDISPLAY"])',
+            'img[src*="K2BActionDisplay.gif"]',
+            'img[id^="vCOLDISPLAY"]'
+        ]
+
+        anchor = None
+        for selq in selectors_to_try:
+            try:
+                el = frame.query_selector(selq)
+                if el:
+                    if el.evaluate("el => el.tagName.toLowerCase()") == "img":
+                        try:
+                            parent = el.evaluate_handle("img => img.closest('a')")
+                            if parent:
+                                anchor = parent.as_element()
+                        except Exception:
+                            anchor = None
+                    else:
+                        anchor = el
+                if anchor:
+                    print(f"[DEBUG] Found element with selector: {selq}")
+                    break
+            except Exception:
+                continue
+
+        if not anchor:
+            print("[ERROR] Could not find link/image inside iframe with known selectors.")
+            _dump_debug(page)
+            return None
+
+        print("[INFO] Clicking the link inside iframe...")
+        try:
+            with page.context.expect_page(timeout=10000) as new_page_ctx:
+                anchor.click()
+            new_page = new_page_ctx.value
+            try:
+                new_page.wait_for_load_state("load", timeout=20000)
+            except Exception:
+                try:
+                    new_page.wait_for_load_state("networkidle", timeout=20000)
+                except Exception:
+                    pass
+            print("[SUCCESS] Link opened in a new tab:", new_page.url)
+            return new_page
+        except TimeoutError:
+            try:
+                anchor.click()
+            except Exception as e:
+                print("[WARN] click without new tab failed:", e)
+            try:
+                frame.wait_for_load_state("load", timeout=10000)
+            except Exception:
+                try:
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                except Exception:
+                    pass
+            print("[INFO] Clicked link — no new tab detected. Current page URL:", page.url)
+            time.sleep(wait_seconds)
+            return page
+
+    except Exception as e:
+        print("[ERROR] Exception in click_iframe_image_and_open:", e)
+        traceback.print_exc()
+        _dump_debug(page)
+        raise
+
+
+def export_xls_and_save(page, save_dir="downloads", timeout=30000):
+    """
+    Find and click the EXPORTXLS element (searching page and frames),
+    wait for the download and save it into save_dir. Returns saved filepath or None.
+    """
+    try:
+        selectors = [
+            getattr(sel, 'EXPORT_XLS_BY_NAME', None),
+            getattr(sel, 'EXPORT_XLS_BY_ID', None),
+            getattr(sel, 'EXPORT_XLS_IMG', None),
+            'input[name="EXPORTXLS"]',
+            'input#EXPORTXLS'
+        ]
+
+        frame_or_page = None
+        el = None
+        for s in selectors:
+            if not s:
+                continue
+            frame_or_page, el = _find_element_in_page_and_frames(page, s, timeout=2000)
+            if el:
+                print(f"[DEBUG] Found export element using selector: {s}")
+                break
+
+        # last resort: try to find by image src matching 'xls' icon
+        if not el:
+            frame_or_page, el = _find_element_in_page_and_frames(page, 'img[src*="xls22.png"]', timeout=2000)
+            if el:
+                print("[DEBUG] Found export image by src 'xls22.png'")
+
+        if not el:
+            print("[ERROR] Export element not found with known selectors. Dumping debug.")
+            _dump_debug(page)
+            return None
+
+        download_listen_page = getattr(frame_or_page, "page", frame_or_page)
+
+        print("[INFO] Clicking export element and waiting for download...")
+        with download_listen_page.expect_download(timeout=timeout) as download_ctx:
+            try:
+                el.click()
+            except Exception:
+                try:
+                    el.evaluate("el => el.click()")
+                except Exception as e:
+                    print("[ERROR] Could not click export element:", e)
+                    return None
+
+        download = download_ctx.value
+        suggested = download.suggested_filename or "export.xls"
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        dest = Path(save_dir) / suggested
+        download.save_as(str(dest))
+        print(f"[SUCCESS] Download saved to: {dest}")
+        return str(dest)
+
+    except Exception as e:
+        print("[ERROR] Exception during export_xls_and_save:", e)
+        traceback.print_exc()
+        try:
+            _dump_debug(page)
+        except Exception:
+            pass
+        return None
 
 # ---------------------------
 # process current page and append rows to CSV/Excel
@@ -917,10 +1041,9 @@ def process_and_save_current_page(page, processed: set, csv_path: str, cols_orde
                 pass
 
             data = _extract_fields_from_page(extraction_target)
-            # sanitize Fecha de Emision (remove last 5 chars)
+            # sanitize Fecha de Emision
             if "Fecha de Emision" in data:
                 data["Fecha de Emision"] = _sanitize_fecha_emision(data["Fecha de Emision"])
-            # compatibility: if extraction used misspelled key
             if "Fecha de Emisin" in data and not data.get("Fecha de Emision"):
                 data["Fecha de Emision"] = _sanitize_fecha_emision(data.get("Fecha de Emisin", ""))
 
@@ -983,7 +1106,6 @@ def process_and_save_current_page(page, processed: set, csv_path: str, cols_orde
                     pass
 
                 data = _extract_fields_from_page(extraction_target)
-                # sanitize Fecha de Emision before saving
                 if "Fecha de Emision" in data:
                     data["Fecha de Emision"] = _sanitize_fecha_emision(data["Fecha de Emision"])
                 if "Fecha de Emisin" in data and not data.get("Fecha de Emision"):
@@ -1024,7 +1146,6 @@ def process_and_save_current_page(page, processed: set, csv_path: str, cols_orde
             final_df = pd.read_csv(csv_path)
             try:
                 xlsx_path = os.path.splitext(csv_path)[0] + ".xlsx"
-                # sanitize Fecha de Emision column in final_df (defensive)
                 if "Fecha de Emision" in final_df.columns:
                     final_df["Fecha de Emision"] = final_df["Fecha de Emision"].fillna("").astype(str).apply(lambda s: s[:-5] if len(s) > 5 else "")
                 final_df.to_excel(xlsx_path, index=False)
@@ -1042,11 +1163,6 @@ def process_and_save_current_page(page, processed: set, csv_path: str, cols_orde
 # ---------------------------
 def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_file: str = "results.xlsx", parent_selector: Optional[str]=None,
                            do_post_action: bool = True, max_pages: Optional[int] = None) -> str:
-    """
-    Main function: find document links in the grid (or using link_selector),
-    extract fields and save incrementally to CSV/Excel for each page, and paginate by clicking Next in-place.
-    Returns output_file path on success (Excel if able to write, otherwise CSV).
-    """
     print("[INFO] Starting collection (in-place pagination + immediate extraction).")
 
     out_dir = os.path.dirname(output_file) or "."
@@ -1098,9 +1214,18 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
     rows_added += new_on_page
     print(f"[INFO] New rows from initial page: {new_on_page}")
 
+    # Export XLS for the current page (save into out_dir/exports/page_{page_count}/)
+    try:
+        exports_dir = os.path.join(out_dir, "exports")
+        page_exports_dir = os.path.join(exports_dir, f"page_{page_count}")
+        saved = export_xls_and_save(page, save_dir=page_exports_dir)
+        if saved:
+            print(f"[INFO] Exported XLS saved at {saved}")
+    except Exception as e:
+        print("[WARN] export_xls failed:", e)
+
     # 2) Loop: click Next (in-place) then immediately process that page
     while True:
-        # decide whether to stop
         if max_pages is not None and page_count >= max_pages:
             print(f"[INFO] Reached max_pages limit ({max_pages}). Stopping pagination.")
             break
@@ -1114,7 +1239,6 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
             print("[WARN] Could not click Next — stopping pagination.")
             break
 
-        # small grace before scraping — process_and_save_current_page will poll for new items
         time.sleep(0.2)
 
         page_count += 1
@@ -1123,15 +1247,21 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
         rows_added += new_on_page
         print(f"[INFO] New rows from page {page_count}: {new_on_page}")
 
-        # loop continues and will break if new_on_page==0 or max_pages reached
+        # Export XLS for this page as well
+        try:
+            exports_dir = os.path.join(out_dir, "exports")
+            page_exports_dir = os.path.join(exports_dir, f"page_{page_count}")
+            saved = export_xls_and_save(page, save_dir=page_exports_dir)
+            if saved:
+                print(f"[INFO] Exported XLS saved at {saved}")
+        except Exception as e:
+            print("[WARN] export_xls failed:", e)
 
     # Final: try to write final Excel from CSV, dropping h_source_url
     try:
         final_df = pd.read_csv(csv_path) if os.path.exists(csv_path) else pd.DataFrame(columns=cols_order)
-        # DROP the h_source_url column for the final output as requested
         if "h_source_url" in final_df.columns:
             final_df = final_df.drop(columns=["h_source_url"])
-        # sanitize Fecha de Emision column in final_df (defensive)
         if "Fecha de Emision" in final_df.columns:
             final_df["Fecha de Emision"] = final_df["Fecha de Emision"].fillna("").astype(str).apply(lambda s: s[:-1] if len(s) > 5 else "")
         try:
@@ -1153,17 +1283,12 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
         print("[INFO] Leaving incremental CSV at:", csv_path)
         result_path = csv_path
 
-    # ---- After finishing collection, optionally navigate back to consulta and refill the same details ----
+    # Post-collection optional action
     if do_post_action:
         try:
-            try:
-                tipo = getattr(config, "ECF_TIPO", None)
-                d_from = getattr(config, "ECF_FROM_DATE", None)
-                d_to = getattr(config, "ECF_TO_DATE", None)
-            except Exception:
-                tipo = d_from = d_to = None
-
-            print("[INFO] Performing post-collection action: navigate to consulta and refill filters + click next image...")
+            tipo = getattr(config, "ECF_TIPO", None)
+            d_from = getattr(config, "ECF_FROM_DATE", None)
+            d_to = getattr(config, "ECF_TO_DATE", None)
             try:
                 go_to_consulta_and_click_next(page, tipo_value=tipo, date_from=d_from, date_to=d_to, wait_after_fill=2.0)
             except Exception as e:

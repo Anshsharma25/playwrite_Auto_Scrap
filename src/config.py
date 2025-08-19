@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Load .env if present (optional) — runtime overrides from the Flask upload will not write .env
+# Load .env if present (optional)
 BASE_DIR = Path(__file__).resolve().parents[1]
 ENV_PATH = BASE_DIR / '.env'
 if ENV_PATH.exists():

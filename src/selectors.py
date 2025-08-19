@@ -15,10 +15,9 @@ BUTTON_CONSULTAR = 'input[name="BOTONCONSULTAR"]' # Consultar button
 # Grid table selectors
 GRID_TABLE = 'table#Grid1ContainerTbl'
 GRID_ROW_PREFIX = 'Grid1ContainerRow_'
-GRID_LINKS_SELECTOR = 'table#Grid1ContainerTbl a[href]'
-  # links inside the results grid (default)
+GRID_LINKS_SELECTOR = 'table#Grid1ContainerTbl a[href]'  # links inside the results grid (default)
 
-# Export / XLS selectors (used by export_xls_and_save)
+# Export / XLS selectors
 EXPORT_XLS_BY_NAME = 'input[name="EXPORTXLS"]'
 EXPORT_XLS_BY_ID = 'input#EXPORTXLS'
 EXPORT_XLS_IMG = 'img[src*="K2BActionExport"]'
