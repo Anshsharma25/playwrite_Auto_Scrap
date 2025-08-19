@@ -1,0 +1,130 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>CFE Scraper — Upload Inputs & Run</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+      :root{
+        --bg:#0f1724;
+        --card:#0b1220;
+        --muted:#94a3b8;
+        --accent:#8b5cf6;
+        --success:#10b981;
+        --danger:#ef4444;
+        --glass: rgba(255,255,255,0.03);
+      }
+      html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;color:#e6eef8;background: linear-gradient(180deg, #071129 0%, #081427 100%);}
+      .wrap{max-width:880px;margin:48px auto;padding:28px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow:0 8px 30px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.03)}
+      h1{margin:0 0 8px;font-size:20px}
+      p.lead{margin:0 0 18px;color:var(--muted)}
+      .grid{display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start}
+      .card{background:var(--card);padding:16px;border-radius:10px;border:1px solid rgba(255,255,255,0.02)}
+      label{display:block;color:var(--muted);font-size:13px;margin-bottom:8px}
+      input[type="file"]{display:block;padding:10px;background:var(--glass);border-radius:8px;border:1px dashed rgba(255,255,255,0.03);color:#dbeafe}
+      .btn{display:inline-block;padding:10px 14px;border-radius:8px;border:none;background:linear-gradient(90deg,var(--accent),#5b21b6);color:white;cursor:pointer;font-weight:600}
+      .small{font-size:13px;color:var(--muted)}
+      pre#result{background:#031025;color:#bfe6d8;padding:12px;border-radius:8px;min-height:80px;overflow:auto;margin-top:12px}
+      ul.kv{list-style:none;padding:0;margin:0}
+      ul.kv li{padding:8px 0;border-bottom:1px dashed rgba(255,255,255,0.02);color:var(--muted);font-size:13px}
+      footer{margin-top:18px;color:var(--muted);font-size:13px;text-align:center}
+      @media(max-width:880px){
+        .grid{grid-template-columns:1fr; }
+      }
+      code{background:rgba(255,255,255,0.02);padding:2px 6px;border-radius:4px}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div>
+          <h1>CFE Scraper</h1>
+          <p class="lead">Upload a TXT/CSV or Excel file with key-value pairs (KEY=VALUE or first column = key, second = value). The scraper runs headless on the server and returns the output location when finished.</p>
+        </div>
+        <div style="text-align:right">
+          <div class="small">Server mode: <strong style="color:#a7f3d0">headless</strong></div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <div class="card">
+            <form id="runForm" enctype="multipart/form-data" method="post" action="/run">
+              <label>Upload inputs (optional)</label>
+              <input type="file" name="file" accept=".xlsx,.xls,.csv,.txt" />
+              <div style="margin-top:12px">
+                <label class="small">How to format:</label>
+                <ul class="kv">
+                  <li><strong>Excel:</strong> first column = KEY, second column = VALUE</li>
+                  <li><strong>TXT/CSV:</strong> lines like <code>RUT=12345</code> or <code>ECF_FROM_DATE,01/01/2024</code></li>
+                </ul>
+              </div>
+
+              <div style="margin-top:14px; display:flex; gap:10px; align-items:center;">
+                <button class="btn" type="submit">Run Scraper</button>
+                <div class="small">This request will block until job completes.</div>
+              </div>
+            </form>
+
+            <pre id="result">No job run yet.</pre>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <h3 style="margin:0 0 10px">Recent output</h3>
+            <div class="small">After the scraper completes, the API will return the path to the generated file (if any).</div>
+            <div style="margin-top:12px">
+              <strong>Defaults</strong>
+              <ul class="kv" style="margin-top:8px">
+                <li>OUTPUT_FILE = <span id="out-default">output/results.xlsx</span></li>
+                <li>DOWNLOAD_DIR = downloads</li>
+                <li>HEADLESS = true (forced)</li>
+              </ul>
+            </div>
+          </div>
+
+          <div style="height:12px"></div>
+
+          <div class="card small">
+            <strong>Note</strong>
+            <p class="small" style="margin-top:8px">
+              If you want background job handling (so UI doesn't block), I can add RQ/Celery and return job ids.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <footer>© CFE Scraper — local server</footer>
+    </div>
+
+    <script>
+      const form = document.getElementById('runForm')
+      const result = document.getElementById('result')
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault()
+        result.style.background = '#031025'
+        result.style.color = '#bfe6d8'
+        result.textContent = 'Uploading and running... (this may take a while; will return when done)'
+        const fd = new FormData(form)
+        try{
+          const resp = await fetch('/run', { method:'POST', body: fd })
+          const json = await resp.json()
+          if(json.ok){
+            result.style.background = '#052016'
+            result.style.color = '#a7f3d0'
+            result.textContent = '✅ Job finished successfully. Output file: ' + (json.output || 'none')
+          } else {
+            result.style.background = '#2b0b0b'
+            result.style.color = '#ffb4b4'
+            result.textContent = '❌ Error: ' + (json.error || 'unknown')
+          }
+        } catch(err){
+          result.style.background = '#2b0b0b'
+          result.style.color = '#ffb4b4'
+          result.textContent = '❌ Request failed: ' + err.message
+        }
+      })
+    </script>
+  </body>
+</html>

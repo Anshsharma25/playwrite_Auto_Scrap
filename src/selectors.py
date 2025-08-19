@@ -1,0 +1,52 @@
+# src/selectors.py
+
+# login selectors
+USERNAME_INPUT = 'input#logFld_885_73_2_1'
+PASSWORD_INPUT = 'input#logFld_885_73_2_2'
+LOGIN_BUTTON_IMG = 'img.logBtnLogin'
+CONTINUE_BUTTON = 'input[name="CONFIRMAR"][value="Continuar"]'
+
+# Consulta de CFE recibidos page selectors
+SELECT_TIPO_CFE = 'select#vFILTIPOCFE'            # dropdown for tipo CFE
+DATE_FROM = 'input#CTLFECHADESDE'                 # 'Desde' date field
+DATE_TO = 'input#CTLFECHAHASTA'                   # 'Hasta' date field
+BUTTON_CONSULTAR = 'input[name="BOTONCONSULTAR"]' # Consultar button
+
+# Grid table selectors
+GRID_TABLE = 'table#Grid1ContainerTbl'
+GRID_ROW_PREFIX = 'Grid1ContainerRow_'
+GRID_LINKS_SELECTOR = 'table#Grid1ContainerTbl a[href]'
+  # links inside the results grid (default)
+
+# Export / XLS selectors (used by export_xls_and_save)
+EXPORT_XLS_BY_NAME = 'input[name="EXPORTXLS"]'
+EXPORT_XLS_BY_ID = 'input#EXPORTXLS'
+EXPORT_XLS_IMG = 'img[src*="K2BActionExport"]'
+
+# Some commonly referenced spans/ids on the CFE detail page
+SPAN_DENOMINACION = '#span_vDENOMINACION'
+SPAN_RUT = '#span_vRUT'
+SPAN_TIPO_CFE = '#span_CTLEFACCMPTIPODESCORTA'
+SPAN_SERIE = '#span_CTLEFACCFESERIE1'
+SPAN_NUMERO = '#span_CTLEFACCFENUMERO1'
+SPAN_FECHA_CONTAINER = '#CTLEFACCFEFIRMAFECHAHORA_dp_container'
+SPAN_MONEDA = '#span_CTLEFACCFETIPOMONEDA'
+SPAN_TIPO_CAMBIO = '#span_CTLEFACCFETIPOCAMBIO'
+SPAN_MNT_NOGRAV = '#span_CTLEFACCFETOTALMONTONOGRV'
+SPAN_MNT_EXPORT = '#span_CTLEFACCFETOTALMONTONOGRV'
+SPAN_MNT_IMP_PER = '#span_CTLEFACCFETOTALMNTIMPPER'
+SPAN_MNT_IVA_SUSP = '#span_CTLEFACCFETOTALMNTIVASUSP'
+SPAN_NETO_TASA_BAS = '#span_CTLEFACCFETOTALMNTNETOIVATTB'
+SPAN_NETO_TASA_MIN = '#span_CTLEFACCFETOTALMNTNETOIVATTM'
+SPAN_NETO_OTRA = '#span_CTLEFACCFETOTALMNTNETOIVATTO'
+SPAN_MNT_TOTAL = '#span_CTLEFACCFETOTALMONTOTOTAL'
+TEXTBLOCK_64 = '#TEXTBLOCK64'
+SPAN_CRED_FISC = '#span_CTLEFACCFETOTALMONTCREDFISC'
+SPAN_MONT_NOFACT = '#span_CTLEFACCFEMONTONOFACT'
+SPAN_MNT_A_PAGAR = '#span_CTLEFACCFETOTALMNTAPAGAR'
+SPAN_IVA_BAS = '#span_CTLEFACCFETOTALIVATASABASICA'
+SPAN_IVA_MIN = '#span_CTLEFACCFETOTALIVATASAMIN'
+SPAN_IVA_OTRA = '#span_CTLEFACCFETOTALIVAOTRATASA'
+
+# Generic helpers
+ALL_IFRAMES = 'iframe'
