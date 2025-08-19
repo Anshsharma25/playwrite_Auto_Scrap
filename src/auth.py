@@ -116,7 +116,7 @@ def login_and_continue(page, post_click_wait: int = 5, wait_for_selector: Option
     """
     Login to the site, press Continue and then click the 'Consulta de CFE recibidos' entry.
     Returns (final_page, final_url).
-    Raises ValueError on likely login failure.
+    Raises ValueError on likely login failure (keeps behavior for caller to surface).
     """
     try:
         print("[INFO] Waiting for initial page load (networkidle)...")
@@ -306,6 +306,7 @@ def login_and_continue(page, post_click_wait: int = 5, wait_for_selector: Option
         return final_page, final_url
 
     except ValueError:
+        # re-raise to let caller display message
         raise
     except Error as e:
         print("[ERROR] Playwright Error:", e)
@@ -321,6 +322,7 @@ def login_and_continue(page, post_click_wait: int = 5, wait_for_selector: Option
 # ---------------------------
 # Fill filters / Consult
 # ---------------------------
+
 def _click_maybe_in_frames(page, selector, timeout=2000):
     try:
         page.click(selector, timeout=timeout)
@@ -366,7 +368,14 @@ def _set_select_value(frame_or_page, element_handle, value):
         pass
     try:
         element_handle.evaluate(
-            "(el, val) => { el.value = val; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); el.dispatchEvent(new Event('blur',{bubbles:true})); try{ if(window.gx && gx.evt && typeof gx.evt.onchange === 'function') gx.evt.onchange(el);}catch(e){} return true; }",
+            """(el, val) => {
+                el.value = val;
+                el.dispatchEvent(new Event('input',{bubbles:true}));
+                el.dispatchEvent(new Event('change',{bubbles:true}));
+                el.dispatchEvent(new Event('blur',{bubbles:true}));
+                try{ if(window.gx && gx.evt && typeof gx.evt.onchange === 'function') gx.evt.onchange(el);}catch(e){}
+                return true;
+            }""",
             value
         )
         return True
@@ -374,7 +383,7 @@ def _set_select_value(frame_or_page, element_handle, value):
         pass
     try:
         element_handle.click()
-        frame_or_page.click(f'{sel.SELECT_TIPO_CFE} >> option[value=\"{value}\"]', timeout=2000)
+        frame_or_page.click(f'{sel.SELECT_TIPO_CFE} >> option[value="{value}"]', timeout=2000)
         return True
     except Exception:
         pass
@@ -384,7 +393,16 @@ def _set_select_value(frame_or_page, element_handle, value):
 def _set_input_value_with_fallback(frame_or_page, element_handle, value):
     try:
         element_handle.evaluate(
-            "(el, val) => { try{ el.focus && el.focus(); }catch(e){} el.value = val; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); el.dispatchEvent(new Event('blur',{bubbles:true})); try{ if(window.gx && gx.evt && typeof gx.evt.onchange === 'function') gx.evt.onchange(el); }catch(e){} try{ if(window.gx && gx.date && typeof gx.date.valid_date === 'function') { try{ gx.date.valid_date(el,10,'DMY',0,24,'spa',false,0);}catch(e){} } }catch(e){} return true; }",
+            """(el, val) => {
+                try{ el.focus && el.focus(); }catch(e){}
+                el.value = val;
+                el.dispatchEvent(new Event('input',{bubbles:true}));
+                el.dispatchEvent(new Event('change',{bubbles:true}));
+                el.dispatchEvent(new Event('blur',{bubbles:true}));
+                try{ if(window.gx && gx.evt && typeof gx.evt.onchange === 'function') gx.evt.onchange(el); }catch(e){}
+                try{ if(window.gx && gx.date && typeof gx.date.valid_date === 'function') { try{ gx.date.valid_date(el,10,'DMY',0,24,'spa',false,0);}catch(e){} } }catch(e){}
+                return true;
+            }""",
             value
         )
         return True
@@ -753,6 +771,10 @@ def go_to_consulta_and_click_next(page,
                                  date_from: Optional[str] = None,
                                  date_to: Optional[str] = None,
                                  wait_after_fill: float = 2.0) -> Tuple[object, str]:
+    """
+    Navigate to consulta page (if needed), run fill_cfe_and_consult once to ensure grid is loaded,
+    then click the Next image/button and return (final_page, url).
+    """
     try:
         try:
             cur_url = getattr(page, "url", "") or ""
@@ -898,11 +920,12 @@ def click_iframe_image_and_open(page, wait_seconds: int = 5):
         _dump_debug(page)
         raise
 
-
-def export_xls_and_save(page, save_dir="downloads", timeout=30000):
+def export_xls_and_save(page, save_dir="downloads", timeout=30000, filename_prefix: str = ""):
     """
     Find and click the EXPORTXLS element (searching page and frames),
     wait for the download and save it into save_dir. Returns saved filepath or None.
+
+    filename_prefix will be prefixed to the suggested filename (useful to avoid overwrites).
     """
     try:
         selectors = [
@@ -949,8 +972,15 @@ def export_xls_and_save(page, save_dir="downloads", timeout=30000):
 
         download = download_ctx.value
         suggested = download.suggested_filename or "export.xls"
+        # ensure save dir exists
         Path(save_dir).mkdir(parents=True, exist_ok=True)
-        dest = Path(save_dir) / suggested
+
+        # build destination name using optional prefix + timestamp to avoid collisions
+        ts = datetime.now().strftime("%Y%m%d%H%M%S")
+        prefix = filename_prefix or ""
+        dest_name = f"{prefix}{ts}_{suggested}"
+        dest = Path(save_dir) / dest_name
+
         download.save_as(str(dest))
         print(f"[SUCCESS] Download saved to: {dest}")
         return str(dest)
@@ -1041,9 +1071,10 @@ def process_and_save_current_page(page, processed: set, csv_path: str, cols_orde
                 pass
 
             data = _extract_fields_from_page(extraction_target)
-            # sanitize Fecha de Emision
+            # sanitize Fecha de Emision (remove last 5 chars)
             if "Fecha de Emision" in data:
                 data["Fecha de Emision"] = _sanitize_fecha_emision(data["Fecha de Emision"])
+            # compatibility: if extraction used misspelled key
             if "Fecha de Emisin" in data and not data.get("Fecha de Emision"):
                 data["Fecha de Emision"] = _sanitize_fecha_emision(data.get("Fecha de Emisin", ""))
 
@@ -1106,6 +1137,7 @@ def process_and_save_current_page(page, processed: set, csv_path: str, cols_orde
                     pass
 
                 data = _extract_fields_from_page(extraction_target)
+                # sanitize Fecha de Emision before saving
                 if "Fecha de Emision" in data:
                     data["Fecha de Emision"] = _sanitize_fecha_emision(data["Fecha de Emision"])
                 if "Fecha de Emisin" in data and not data.get("Fecha de Emision"):
@@ -1146,6 +1178,7 @@ def process_and_save_current_page(page, processed: set, csv_path: str, cols_orde
             final_df = pd.read_csv(csv_path)
             try:
                 xlsx_path = os.path.splitext(csv_path)[0] + ".xlsx"
+                # sanitize Fecha de Emision column in final_df (defensive)
                 if "Fecha de Emision" in final_df.columns:
                     final_df["Fecha de Emision"] = final_df["Fecha de Emision"].fillna("").astype(str).apply(lambda s: s[:-5] if len(s) > 5 else "")
                 final_df.to_excel(xlsx_path, index=False)
@@ -1161,24 +1194,95 @@ def process_and_save_current_page(page, processed: set, csv_path: str, cols_orde
 # ---------------------------
 # collect_cfe_from_links: multi-page, uses click_next_only for in-place pagination
 # ---------------------------
+def _normalize_date_for_folder(s: str) -> str:
+    """Convert various date formats into DD-MM-YYYY (best-effort). If not parseable, sanitize digits."""
+    if not s:
+        return ""
+    s = s.strip()
+    # try common formats
+    patterns = [
+        ("%d/%m/%Y", r"\d{2}/\d{2}/\d{4}"),
+        ("%Y-%m-%d", r"\d{4}-\d{2}-\d{2}"),
+        ("%d-%m-%Y", r"\d{2}-\d{2}-\d{4}"),
+        ("%d.%m.%Y", r"\d{2}\.\d{2}\.\d{4}"),
+        ("%m/%d/%Y", r"\d{2}/\d{2}/\d{4}"),
+    ]
+    for fmt, pat in patterns:
+        try:
+            if re.match(pat, s):
+                dt = datetime.strptime(s, fmt)
+                return dt.strftime("%d-%m-%Y")
+        except Exception:
+            continue
+    # try to extract numbers and reformat dd-mm-yyyy if possible
+    digits = re.findall(r"\d+", s)
+    if len(digits) >= 3:
+        # choose last 3 if year first
+        if len(digits[0]) == 4:
+            y, m, d = digits[0], digits[1], digits[2]
+        else:
+            d, m, y = digits[0], digits[1], digits[2]
+        try:
+            dt = datetime(int(y), int(m), int(d))
+            return dt.strftime("%d-%m-%Y")
+        except Exception:
+            pass
+    # fallback sanitize
+    return re.sub(r"[^\d\-]", "-", s)
+
 def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_file: str = "results.xlsx", parent_selector: Optional[str]=None,
                            do_post_action: bool = True, max_pages: Optional[int] = None) -> str:
+    """
+    Main function: find document links in the grid (or using link_selector),
+    extract fields and save incrementally to CSV/Excel for each page, and paginate by clicking Next in-place.
+    Returns output_file path on success (Excel if able to write, otherwise CSV).
+
+    NEW behavior: output structure:
+      <base_dir>/
+         <RUT>/                        <-- folder named exactly as config.RUT
+            result.csv
+            result.xlsx
+            <DD-MM-YYYY_to_DD-MM-YYYY>/  <-- duration folder (created from ECF_FROM_DATE and ECF_TO_DATE)
+                exported files (all XLS/XLSX downloads for the run)
+    """
     print("[INFO] Starting collection (in-place pagination + immediate extraction).")
 
-    out_dir = os.path.dirname(output_file) or "."
-    base_name = os.path.splitext(os.path.basename(output_file))[0]
-    csv_path = os.path.join(out_dir, f"{base_name}.csv")
-    xlsx_path = os.path.join(out_dir, f"{base_name}.xlsx")
+    # base directory where OUTPUT_FILE normally lives
+    base_dir = os.path.dirname(output_file) or "."
+    rut_val = str(getattr(config, "RUT", "")).strip() or "unknown_rut"
+    rut_dir = os.path.join(base_dir, rut_val)
+    os.makedirs(rut_dir, exist_ok=True)
+
+    # build duration folder name
+    d_from_raw = getattr(config, "ECF_FROM_DATE", "") or ""
+    d_to_raw = getattr(config, "ECF_TO_DATE", "") or ""
+    if d_from_raw and d_to_raw:
+        d_from_norm = _normalize_date_for_folder(d_from_raw)
+        d_to_norm = _normalize_date_for_folder(d_to_raw)
+        duration_folder_name = f"{d_from_norm}_to_{d_to_norm}"
+    elif d_from_raw:
+        duration_folder_name = f"from_{_normalize_date_for_folder(d_from_raw)}"
+    elif d_to_raw:
+        duration_folder_name = f"to_{_normalize_date_for_folder(d_to_raw)}"
+    else:
+        duration_folder_name = "all_dates"
+
+    duration_dir = os.path.join(rut_dir, duration_folder_name)
+    os.makedirs(duration_dir, exist_ok=True)
+
+    # CSV/XLSX results will be saved directly under the rut_dir (not in duration folder)
+    csv_path = os.path.join(rut_dir, "result.csv")
+    xlsx_path = os.path.join(rut_dir, "result.xlsx")
 
     # load processed URLs from existing outputs (Excel or CSV) using h_source_url
     processed = set()
-    if os.path.exists(output_file):
+    if os.path.exists(xlsx_path):
         try:
-            existing_df = pd.read_excel(output_file)
+            existing_df = pd.read_excel(xlsx_path)
             if "h_source_url" in existing_df.columns:
                 for u in existing_df["h_source_url"].fillna("").astype(str):
                     processed.add(_canonicalize_url(u))
-            print(f"[INFO] Loaded {len(existing_df)} existing rows from {output_file}.")
+            print(f"[INFO] Loaded {len(existing_df)} existing rows from {xlsx_path}.")
         except Exception as e:
             print("[WARN] Could not read existing Excel (will try CSV).", e)
 
@@ -1201,9 +1305,6 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
         "Iva Tasa Basica", "Iva Tasa Minima", "Iva Otra Tasa", "h_source_url"
     ]
 
-    if out_dir and not os.path.exists(out_dir):
-        os.makedirs(out_dir, exist_ok=True)
-
     rows_added = 0
     page_count = 0
 
@@ -1214,11 +1315,9 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
     rows_added += new_on_page
     print(f"[INFO] New rows from initial page: {new_on_page}")
 
-    # Export XLS for the current page (save into out_dir/exports/page_{page_count}/)
+    # Export XLS for the current page (save into duration_dir)
     try:
-        exports_dir = os.path.join(out_dir, "exports")
-        page_exports_dir = os.path.join(exports_dir, f"page_{page_count}")
-        saved = export_xls_and_save(page, save_dir=page_exports_dir)
+        saved = export_xls_and_save(page, save_dir=duration_dir, filename_prefix=f"page{page_count}_")
         if saved:
             print(f"[INFO] Exported XLS saved at {saved}")
     except Exception as e:
@@ -1226,6 +1325,7 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
 
     # 2) Loop: click Next (in-place) then immediately process that page
     while True:
+        # decide whether to stop
         if max_pages is not None and page_count >= max_pages:
             print(f"[INFO] Reached max_pages limit ({max_pages}). Stopping pagination.")
             break
@@ -1239,6 +1339,7 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
             print("[WARN] Could not click Next — stopping pagination.")
             break
 
+        # small grace before scraping — process_and_save_current_page will poll for new items
         time.sleep(0.2)
 
         page_count += 1
@@ -1247,21 +1348,23 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
         rows_added += new_on_page
         print(f"[INFO] New rows from page {page_count}: {new_on_page}")
 
-        # Export XLS for this page as well
+        # Export XLS for this page as well (saved into duration_dir)
         try:
-            exports_dir = os.path.join(out_dir, "exports")
-            page_exports_dir = os.path.join(exports_dir, f"page_{page_count}")
-            saved = export_xls_and_save(page, save_dir=page_exports_dir)
+            saved = export_xls_and_save(page, save_dir=duration_dir, filename_prefix=f"page{page_count}_")
             if saved:
                 print(f"[INFO] Exported XLS saved at {saved}")
         except Exception as e:
             print("[WARN] export_xls failed:", e)
 
-    # Final: try to write final Excel from CSV, dropping h_source_url
+        # loop continues and will break if new_on_page==0 or max_pages reached
+
+    # Final: try to write final Excel from CSV, dropping h_source_url for final report
     try:
         final_df = pd.read_csv(csv_path) if os.path.exists(csv_path) else pd.DataFrame(columns=cols_order)
+        # DROP the h_source_url column for the final output as requested
         if "h_source_url" in final_df.columns:
             final_df = final_df.drop(columns=["h_source_url"])
+        # sanitize Fecha de Emision column in final_df (defensive)
         if "Fecha de Emision" in final_df.columns:
             final_df["Fecha de Emision"] = final_df["Fecha de Emision"].fillna("").astype(str).apply(lambda s: s[:-1] if len(s) > 5 else "")
         try:
@@ -1269,7 +1372,7 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
             print(f"[SUCCESS] Saved {len(final_df)} rows to {xlsx_path}")
             result_path = xlsx_path
         except PermissionError as pe:
-            ts_path = os.path.join(out_dir, f"{base_name}{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx")
+            ts_path = os.path.join(rut_dir, f"results_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx")
             try:
                 final_df.to_excel(ts_path, index=False)
                 print(f"[WARN] Could not overwrite {xlsx_path} (Permission denied). Saved Excel to {ts_path} instead.")
@@ -1283,12 +1386,17 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
         print("[INFO] Leaving incremental CSV at:", csv_path)
         result_path = csv_path
 
-    # Post-collection optional action
+    # ---- After finishing collection, optionally navigate back to consulta and refill the same details ----
     if do_post_action:
         try:
-            tipo = getattr(config, "ECF_TIPO", None)
-            d_from = getattr(config, "ECF_FROM_DATE", None)
-            d_to = getattr(config, "ECF_TO_DATE", None)
+            try:
+                tipo = getattr(config, "ECF_TIPO", None)
+                d_from = getattr(config, "ECF_FROM_DATE", None)
+                d_to = getattr(config, "ECF_TO_DATE", None)
+            except Exception:
+                tipo = d_from = d_to = None
+
+            print("[INFO] Performing post-collection action: navigate to consulta and refill filters + click next image...")
             try:
                 go_to_consulta_and_click_next(page, tipo_value=tipo, date_from=d_from, date_to=d_to, wait_after_fill=2.0)
             except Exception as e:
