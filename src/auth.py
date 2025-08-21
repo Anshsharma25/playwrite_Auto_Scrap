@@ -556,7 +556,7 @@ def _extract_fields_from_page(p):
         "Moneda": ["#span_CTLEFACCFETIPOMONEDA", '[id*="CTLEFACCFETIPOMONEDA"]'],
         "TC": ["#span_CTLEFACCFETIPOCAMBIO", '[id*="CTLEFACCFETIPOCAMBIO"]', '[id*="TIPOCAMBIO"]'],
         "Monto No Gravado": ["#span_CTLEFACCFETOTALMONTONOGRV", '[id*="TOTALMONTONOGRV"]'],
-        "Monto Exportacion y Asimilados": ["#span_CTLEFACCFETOTALMONTONOGRV", '[id*="TOTALMONTONOGRV"]'],
+        "Monto Exportacion y Asimilados": ["#span_CTLEFACCFETOTALMNTEXPASI", '[id*="TOTALMONTONOGRV"]'],
         "Monto Impuesto Percibido": ["#span_CTLEFACCFETOTALMNTIMPPER", '[id*="TOTALMNTIMPPER"]'],
         "Monto  IVA en suspenso": ["#span_CTLEFACCFETOTALMNTIVASUSP", '[id*="TOTALMNTIVASUSP"]'],
         "Neto Iva Tasa Basica": ["#span_CTLEFACCFETOTALMNTNETOIVATTB", '[id*="TOTALMNTNETOIVATTB"]'],
@@ -1549,7 +1549,7 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
 
         # Export XLS for this page as well (saved into rut_dir)
         try:
-            saved = export_xls_and_save(page, save_dir=rut_dir, filename_prefix=f"page{page_count}_")
+            saved = export_xls_and_save(page, save_dir=rut_dir, filename_prefix=f"page")
             if saved:
                 _move_and_rename_download(saved, idx=download_counter)
                 download_counter += 1
@@ -1583,6 +1583,7 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
         print("[ERROR] Could not convert CSV to Excel / read CSV:", e)
         print("[INFO] Leaving incremental CSV at:", csv_path)
         result_path = csv_path
+        os.remove("result.csv" , "result.xlxs")
 
     # ---- After finishing collection, optionally navigate back to consulta and refill the same details ----
     if do_post_action:
@@ -1603,3 +1604,4 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
             pass
 
     return result_path
+    

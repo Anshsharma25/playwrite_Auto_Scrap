@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>CFE Scraper — Upload Inputs & Run</title>
+    <title>CFE Scraper — Login & Run</title>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <style>
       :root{
@@ -15,31 +15,48 @@
         --glass: rgba(255,255,255,0.03);
       }
       html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;color:#e6eef8;background: linear-gradient(180deg, #071129 0%, #081427 100%);}
-      .wrap{max-width:880px;margin:48px auto;padding:28px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow:0 8px 30px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.03)}
+      .wrap{max-width:980px;margin:48px auto;padding:28px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow:0 8px 30px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.03)}
       h1{margin:0 0 8px;font-size:20px}
       p.lead{margin:0 0 18px;color:var(--muted)}
-      .grid{display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start}
+      .grid{display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start}
       .card{background:var(--card);padding:16px;border-radius:10px;border:1px solid rgba(255,255,255,0.02)}
       label{display:block;color:var(--muted);font-size:13px;margin-bottom:8px}
-      input[type="file"]{display:block;padding:10px;background:var(--glass);border-radius:8px;border:1px dashed rgba(255,255,255,0.03);color:#dbeafe}
       .btn{display:inline-block;padding:10px 14px;border-radius:8px;border:none;background:linear-gradient(90deg,var(--accent),#5b21b6);color:white;cursor:pointer;font-weight:600}
       .small{font-size:13px;color:var(--muted)}
       pre#result{background:#031025;color:#bfe6d8;padding:12px;border-radius:8px;min-height:80px;overflow:auto;margin-top:12px}
       ul.kv{list-style:none;padding:0;margin:0}
       ul.kv li{padding:8px 0;border-bottom:1px dashed rgba(255,255,255,0.02);color:var(--muted);font-size:13px}
       footer{margin-top:18px;color:var(--muted);font-size:13px;text-align:center}
-      @media(max-width:880px){
+      .row{display:flex;gap:10px;align-items:center}
+      .field{flex:1}
+      .inline{display:flex;gap:8px;align-items:center}
+      .radio-group{display:flex;gap:12px;align-items:center;margin-bottom:10px}
+      input[type="text"], input[type="password"], input[type="date"], input[type="number"], select {
+        width:100%;
+        padding:8px 10px;
+        border-radius:8px;
+        border:1px solid rgba(255,255,255,0.03);
+        background:var(--glass);
+        color:#dbeafe;
+        box-sizing:border-box;
+      }
+      .hint{font-size:12px;color:var(--muted);margin-top:6px}
+      .error{color:var(--danger);font-size:13px;margin-top:8px;display:none}
+      .step { margin-bottom:14px; }
+      .hidden { display:none; }
+      @media(max-width:980px){
         .grid{grid-template-columns:1fr; }
       }
       code{background:rgba(255,255,255,0.02);padding:2px 6px;border-radius:4px}
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
   <body>
     <div class="wrap">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div>
           <h1>CFE Scraper</h1>
-          <p class="lead">Upload a TXT/CSV or Excel file with key-value pairs (KEY=VALUE or first column = key, second = value). The scraper runs headless on the server and returns the output location when finished.</p>
+          <p class="lead">Pehele bataye: What do you want to login with? (Choose login method first.)</p>
         </div>
         <div style="text-align:right">
           <div class="small">Server mode: <strong style="color:#a7f3d0">headless</strong></div>
@@ -49,16 +66,56 @@
       <div class="grid">
         <div>
           <div class="card">
-            <form id="runForm" enctype="multipart/form-data" method="post" action="/run">
-              <label>Upload inputs (optional)</label>
-              <input type="file" name="file" accept=".xlsx,.xls,.csv,.txt" />
-              <div style="margin-top:12px">
-                <label class="small">How to format:</label>
-                <ul class="kv">
-                  <li><strong>Excel:</strong> first column = KEY, second column = VALUE</li>
-                  <li><strong>TXT/CSV:</strong> lines like <code>RUT=12345</code> or <code>ECF_FROM_DATE,01/01/2024</code></li>
-                </ul>
+
+            <!-- STEP 1: Choose login method (always visible first) -->
+            <div class="step">
+              <label class="small">What do you want to login with?</label>
+              <div id="loginChoice" class="radio-group" role="radiogroup" aria-label="Login method">
+                <label class="inline"><input id="loginRut" type="radio" name="login_method" value="rut" /> <span class="small">RUT</span></label>
+                <label class="inline"><input id="loginCedula" type="radio" name="login_method" value="cedula" /> <span class="small">Cédula</span></label>
               </div>
+              <div class="hint">Select a method — the form for that method will appear next.</div>
+            </div>
+
+            <!-- STEP 2: full form hidden until user picks a method -->
+            <form id="runForm" class="hidden" enctype="multipart/form-data" method="post" action="/run" novalidate>
+              <!-- Login inputs: shown based on selection -->
+              <div id="rutFields" class="hidden">
+                <label class="small">RUT</label>
+                <input id="rutInput" name="rut" type="text" placeholder="Enter your RUT (e.g. 213624850018)" inputmode="numeric" />
+                <label class="small" style="margin-top:8px">Clave</label>
+                <input id="claveInput" name="clave" type="password" placeholder="Enter your clave" autocomplete="current-password" />
+              </div>
+
+              <div id="cedulaFields" class="hidden">
+                <label class="small">Cédula</label>
+                <input id="cedulaInput" name="cedula" type="text" placeholder="Enter your Cédula" inputmode="numeric" />
+                <label class="small" style="margin-top:8px">Clave</label>
+                <input id="claveCedulaInput" name="clave_cedula" type="password" placeholder="Enter your clave" />
+              </div>
+
+              <div style="margin-top:12px">
+                <label class="small">Filter code</label>
+                <input id="filterCode" name="filter_code" type="text" placeholder="Enter filter code (e.g. entidad or type)" />
+                <div class="hint">Provide the filter code used by the site (optional if server reads values otherwise).</div>
+              </div>
+
+              <div style="margin-top:12px">
+                <label class="small">Dates (optional — will override server/file values)</label>
+                <div class="row" style="margin-top:6px">
+                  <div class="field">
+                    <label class="small">From</label>
+                    <input id="fromDate" name="from_date" type="date" />
+                  </div>
+                  <div class="field">
+                    <label class="small">To</label>
+                    <input id="toDate" name="to_date" type="date" />
+                  </div>
+                </div>
+                <div id="dateWarning" class="small" style="color:var(--danger);margin-top:8px;display:none"></div>
+              </div>
+
+              <div id="formError" class="error">Please fill required fields correctly.</div>
 
               <div style="margin-top:14px; display:flex; gap:10px; align-items:center;">
                 <button class="btn" type="submit">Run Scraper</button>
@@ -72,22 +129,28 @@
 
         <div>
           <div class="card">
-            <h3 style="margin:0 0 10px">Recent output</h3>
-            <div class="small">After the scraper completes, the API will return the path to the generated file (if any).</div>
+            <h3 style="margin:0 0 10px">Duration preview</h3>
+            <div class="small">This chart shows the selected range length (days). Max allowed is 30 days — the server validates this too.</div>
+
             <div style="margin-top:12px">
-              <strong>Defaults</strong>
-              <ul class="kv" style="margin-top:8px">
-                <li>OUTPUT_FILE = <span id="out-default">output/results.xlsx</span></li>
-                <li>DOWNLOAD_DIR = downloads</li>
-                <li>HEADLESS = true (forced)</li>
-              </ul>
+              <canvas id="durationChart" width="320" height="180"></canvas>
+              <div class="small" style="margin-top:8px">
+                <strong>Selected days:</strong> <span id="daysCount">0</span>
+              </div>
             </div>
           </div>
 
           <div style="height:12px"></div>
 
           <div class="card small">
-            <strong>Note</strong>
+            <strong>Defaults</strong>
+            <p class="small" style="margin-top:8px">
+              <ul class="kv" style="margin-top:8px">
+                <li>OUTPUT_FILE = <span id="out-default">output/results.xlsx</span></li>
+                <li>DOWNLOAD_DIR = downloads</li>
+                <li>HEADLESS = true (forced)</li>
+              </ul>
+            </p>
             <p class="small" style="margin-top:8px">
               If you want background job handling (so UI doesn't block), I can add RQ/Celery and return job ids.
             </p>
@@ -99,14 +162,164 @@
     </div>
 
     <script>
-      const form = document.getElementById('runForm')
+      // Elements
+      const loginRutRadio = document.getElementById('loginRut')
+      const loginCedulaRadio = document.getElementById('loginCedula')
+      const runForm = document.getElementById('runForm')
+      const rutFields = document.getElementById('rutFields')
+      const cedulaFields = document.getElementById('cedulaFields')
+      const rutInput = document.getElementById('rutInput')
+      const claveInput = document.getElementById('claveInput')
+      const cedulaInput = document.getElementById('cedulaInput')
+      const claveCedulaInput = document.getElementById('claveCedulaInput')
+      const filterCodeInput = document.getElementById('filterCode')
+      const fromInput = document.getElementById('fromDate')
+      const toInput = document.getElementById('toDate')
+      const daysCountSpan = document.getElementById('daysCount')
+      const dateWarning = document.getElementById('dateWarning')
+      const formError = document.getElementById('formError')
       const result = document.getElementById('result')
-      form.addEventListener('submit', async (e) => {
+
+      // Chart.js
+      const ctx = document.getElementById('durationChart').getContext('2d')
+      const chart = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: ['Duration (days)'], datasets: [{ label: 'Days', data: [0], borderWidth: 1 }] },
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, suggestedMax: 30 }}, plugins: { legend: { display: false } } }
+      })
+
+      function updateDurationPreview(){
+        dateWarning.style.display = 'none'
+        const f = fromInput.value ? new Date(fromInput.value) : null
+        const t = toInput.value ? new Date(toInput.value) : null
+        if(!f || !t){
+          chart.data.datasets[0].data[0] = 0
+          chart.update()
+          daysCountSpan.textContent = '0'
+          return
+        }
+        const msInDay = 24*60*60*1000
+        const diff = Math.round((t - f) / msInDay)
+        const days = diff >= 0 ? diff + 1 : 0
+        daysCountSpan.textContent = String(days)
+        chart.data.datasets[0].data[0] = days
+        chart.update()
+        if(days <= 0){
+          dateWarning.style.display = 'block'
+          dateWarning.textContent = 'ECF_TO_DATE must be the same or later than ECF_FROM_DATE.'
+        } else if(days > 30){
+          dateWarning.style.display = 'block'
+          dateWarning.textContent = 'Date range too large: max allowed is 30 days (server will reject >30).'
+        }
+      }
+
+      fromInput.addEventListener('change', updateDurationPreview)
+      toInput.addEventListener('change', updateDurationPreview)
+      updateDurationPreview()
+
+      // When user picks login method show the form and relevant fields
+      function showFormFor(method){
+        // reveal form container
+        runForm.classList.remove('hidden')
+        formError.style.display = 'none'
+        // toggle fields
+        if(method === 'rut'){
+          rutFields.classList.remove('hidden')
+          cedulaFields.classList.add('hidden')
+        } else {
+          cedulaFields.classList.remove('hidden')
+          rutFields.classList.add('hidden')
+        }
+      }
+
+      // initial: do not show form until user selects
+      loginRutRadio.addEventListener('change', () => showFormFor('rut'))
+      loginCedulaRadio.addEventListener('change', () => showFormFor('cedula'))
+
+      // Basic validation + submit
+      runForm.addEventListener('submit', async (e) => {
         e.preventDefault()
+        formError.style.display = 'none'
+        dateWarning.style.display = 'none'
         result.style.background = '#031025'
         result.style.color = '#bfe6d8'
+        result.textContent = 'Validating inputs...'
+
+        const selected = document.querySelector('input[name="login_method"]:checked')
+        if(!selected){
+          formError.textContent = 'Please select a login method first.'
+          formError.style.display = 'block'
+          result.textContent = 'Validation failed.'
+          return
+        }
+        const loginMethod = selected.value
+
+        // validate login fields
+        if(loginMethod === 'rut'){
+          if(!rutInput.value.trim()){
+            formError.textContent = 'Please enter your RUT.'
+            formError.style.display = 'block'
+            result.textContent = 'Validation failed.'
+            return
+          }
+          if(!claveInput.value.trim()){
+            formError.textContent = 'Please enter your clave.'
+            formError.style.display = 'block'
+            result.textContent = 'Validation failed.'
+            return
+          }
+        } else {
+          if(!cedulaInput.value.trim()){
+            formError.textContent = 'Please enter your Cédula.'
+            formError.style.display = 'block'
+            result.textContent = 'Validation failed.'
+            return
+          }
+          if(!claveCedulaInput.value.trim()){
+            formError.textContent = 'Please enter your clave.'
+            formError.style.display = 'block'
+            result.textContent = 'Validation failed.'
+            return
+          }
+        }
+
+        // dates validation (if provided)
+        const f = fromInput.value ? new Date(fromInput.value) : null
+        const t = toInput.value ? new Date(toInput.value) : null
+        if(f && t){
+          const msInDay = 24*60*60*1000
+          const diff = Math.round((t - f) / msInDay)
+          const days = diff >= 0 ? diff + 1 : 0
+          if(days <= 0){
+            dateWarning.style.display = 'block'
+            dateWarning.textContent = 'ECF_TO_DATE must be the same or later than ECF_FROM_DATE.'
+            result.textContent = 'Validation failed.'
+            return
+          }
+          if(days > 30){
+            dateWarning.style.display = 'block'
+            dateWarning.textContent = 'Date range too large: max allowed is 30 days.'
+            result.textContent = 'Validation failed.'
+            return
+          }
+        }
+
+        // build FormData manually (no file)
+        const fd = new FormData()
+        fd.set('login_method', loginMethod)
+        if(loginMethod === 'rut'){
+          fd.set('rut', rutInput.value.trim())
+          fd.set('clave', claveInput.value.trim())
+        } else {
+          fd.set('cedula', cedulaInput.value.trim())
+          fd.set('clave_cedula', claveCedulaInput.value.trim())
+        }
+        fd.set('filter_code', filterCodeInput.value.trim())
+        if(fromInput.value) fd.set('from_date', fromInput.value)
+        if(toInput.value) fd.set('to_date', toInput.value)
+
+        // send to server
         result.textContent = 'Uploading and running... (this may take a while; will return when done)'
-        const fd = new FormData(form)
         try{
           const resp = await fetch('/run', { method:'POST', body: fd })
           const json = await resp.json()

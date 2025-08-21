@@ -17,7 +17,7 @@ def _parse_uploaded_file_to_dict(path: str) -> dict:
     """
     Parse a small XLSX or TXT/CSV file and return a dict of key->value.
     For Excel: expects first sheet, first column = key, second column = value (header optional).
-    For TXT/CSV: expects lines like KEY=VALUE or comma separated key,value
+    For TXT/CVS: expects lines like KEY=VALUE or comma separated key,value
     """
     ext = Path(path).suffix.lower()
     data = {}
@@ -72,6 +72,7 @@ def index():
 def run_scraper():
     """
     Accepts an optional file upload containing key/value pairs (XLSX or TXT/CSV).
+    Also accepts form fields: rut, clave, from_date, to_date.
     Applies overrides in-memory (does NOT write .env), validates date range (<=30 days),
     forces HEADLESS True and runs the scraper synchronously (blocking).
     Returns JSON with 'ok' and 'output' or 'error'.
@@ -79,6 +80,8 @@ def run_scraper():
     file = request.files.get('file')
     temp_path = None
     overrides = {}
+
+    # parse uploaded file if present
     if file:
         ext = Path(file.filename).suffix.lower()
         if ext not in ALLOWED_EXT:
@@ -86,13 +89,57 @@ def run_scraper():
         tmpdir = tempfile.mkdtemp()
         temp_path = os.path.join(tmpdir, file.filename)
         file.save(temp_path)
-        overrides = _parse_uploaded_file_to_dict(temp_path)
+        overrides = _parse_uploaded_file_to_dict(temp_path) or {}
+
+    # parse explicit form fields (they override file values)
+    form_rut = request.form.get('rut') or request.form.get('RUT')
+    form_clave = request.form.get('clave') or request.form.get('CLAVE')
+    form_from = request.form.get('from_date') or request.form.get('ECF_FROM_DATE') or request.form.get('from')
+    form_to = request.form.get('to_date') or request.form.get('ECF_TO_DATE') or request.form.get('to')
+
+    if form_rut:
+        overrides['RUT'] = form_rut.strip()
+    if form_clave:
+        overrides['CLAVE'] = form_clave.strip()
+    if form_from:
+        overrides['ECF_FROM_DATE'] = form_from.strip()
+    if form_to:
+        overrides['ECF_TO_DATE'] = form_to.strip()
 
     try:
         # reload config and apply overrides in-memory (no .env write)
         importlib.reload(config)
         if overrides:
-            config.override_from_dict(overrides)
+            # normalize keys to expected uppercase keys
+            normalized = {}
+            for k, v in overrides.items():
+                if not k:
+                    continue
+                kk = str(k).strip()
+                vv = "" if v is None else str(v).strip()
+                if kk.lower() == "rut":
+                    normalized["RUT"] = vv
+                elif kk.lower() == "clave":
+                    normalized["CLAVE"] = vv
+                elif kk.lower() in ("ecf_from_date", "from", "from_date"):
+                    normalized["ECF_FROM_DATE"] = vv
+                elif kk.lower() in ("ecf_to_date", "to", "to_date"):
+                    normalized["ECF_TO_DATE"] = vv
+                elif kk.lower() == "ecf_tipo":
+                    # frontend is NOT supposed to override ECF_TIPO, but accept if provided intentionally
+                    normalized["ECF_TIPO"] = vv
+                elif kk == "MAX_PAGES":
+                    normalized["MAX_PAGES"] = vv
+                else:
+                    # keep any other keys
+                    normalized[kk] = vv
+            config.override_from_dict(normalized)
+
+        # simple required check: RUT and CLAVE must be present (frontend must supply)
+        cur_rut = getattr(config, "RUT", "") or ""
+        cur_clave = getattr(config, "CLAVE", "") or ""
+        if not cur_rut or not cur_clave:
+            return jsonify({'ok': False, 'error': 'RUT and CLAVE required (provide via file or form fields).'}), 400
 
         # Validate dates before launching browser
         d_from_s = getattr(config, "ECF_FROM_DATE", "") or ""
@@ -106,10 +153,9 @@ def run_scraper():
             if delta > 30:
                 return jsonify({'ok': False, 'error': 'Date range too large: max allowed is 30 days'}), 400
 
-        # Ensure HEADLESS enforced (do not open visible browser)
-        if not getattr(config, "HEADLESS", True):
-            config.HEADLESS = True
-            os.environ['HEADLESS'] = "true"
+        # Ensure HEADLESS enforced (do not open visible browser from web server)
+        config.HEADLESS = True
+        os.environ['HEADLESS'] = "true"
 
         # Run scraper synchronously
         try:
