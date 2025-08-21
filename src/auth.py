@@ -1,10 +1,15 @@
 # src/auth.py
+# Full updated auth module with robust download handling (page.expect_download preferred,
+# threaded fallback using context.wait_for_event), plus the requested output folder/filename structure.
+
 import time
 import traceback
 import os
 import re
 import urllib.parse
 import csv
+import shutil
+import threading
 from datetime import datetime
 from typing import Optional, Tuple, List
 import pandas as pd
@@ -131,7 +136,8 @@ def login_and_continue(page, post_click_wait: int = 5, wait_for_selector: Option
         target = None
         try:
             print("[INFO] Looking for username input on main page...")
-            page.wait_for_selector(sel.USERNAME_INPUT, timeout=8000)
+            # give slightly longer time for login input to appear
+            page.wait_for_selector(sel.USERNAME_INPUT, timeout=15000)
             target = page
             print("[INFO] Found main page login inputs.")
         except TimeoutError:
@@ -322,7 +328,6 @@ def login_and_continue(page, post_click_wait: int = 5, wait_for_selector: Option
 # ---------------------------
 # Fill filters / Consult
 # ---------------------------
-
 def _click_maybe_in_frames(page, selector, timeout=2000):
     try:
         page.click(selector, timeout=timeout)
@@ -536,6 +541,7 @@ def _sanitize_fecha_emision(value: str) -> str:
     if not value:
         return ""
     v = str(value).strip()
+    # keep same behavior as earlier code: remove trailing timezone/extra 5 chars if present
     return v[:-5] if len(v) > 5 else ""
 
 
@@ -825,7 +831,7 @@ def go_to_consulta_and_click_next(page,
 
 
 # ---------------------------
-# New: export XLS helpers (integrated)
+# New: export XLS helpers (integrated) - improved with fallback
 # ---------------------------
 def click_iframe_image_and_open(page, wait_seconds: int = 5):
     try:
@@ -920,12 +926,15 @@ def click_iframe_image_and_open(page, wait_seconds: int = 5):
         _dump_debug(page)
         raise
 
+
 def export_xls_and_save(page, save_dir="downloads", timeout=30000, filename_prefix: str = ""):
     """
     Find and click the EXPORTXLS element (searching page and frames),
     wait for the download and save it into save_dir. Returns saved filepath or None.
 
-    filename_prefix will be prefixed to the suggested filename (useful to avoid overwrites).
+    Implements:
+      - page.expect_download() (preferred)
+      - fallback to context.wait_for_event('download') via a background thread if expect_download not present
     """
     try:
         selectors = [
@@ -957,36 +966,118 @@ def export_xls_and_save(page, save_dir="downloads", timeout=30000, filename_pref
             _dump_debug(page)
             return None
 
-        download_listen_page = getattr(frame_or_page, "page", frame_or_page)
+        # ensure save dir exists
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
 
-        print("[INFO] Clicking export element and waiting for download...")
-        with download_listen_page.expect_download(timeout=timeout) as download_ctx:
+        # Try preferred API: page.expect_download()
+        try:
+            print("[INFO] Attempting page.expect_download() to capture the download.")
+            with page.expect_download(timeout=timeout) as download_ctx:
+                try:
+                    # try direct click first
+                    try:
+                        el.click()
+                    except Exception:
+                        try:
+                            el.evaluate("el => el.click()")
+                        except Exception:
+                            href = None
+                            try:
+                                href = el.get_attribute('href')
+                            except Exception:
+                                href = None
+                            if href:
+                                page.evaluate("url => window.open(url, '_blank')", href)
+                            else:
+                                raise
+                except Exception as e:
+                    print("[ERROR] Could not click export element (expect_download path):", e)
+                    return None
+            download = download_ctx.value
+            suggested = download.suggested_filename or "export.xls"
+            ts = datetime.now().strftime("%Y%m%d%H%M%S")
+            dest_name = f"{filename_prefix or ''}{ts}_{suggested}"
+            dest = Path(save_dir) / dest_name
+            download.save_as(str(dest))
+            print(f"[SUCCESS] Download saved to: {dest}")
+            return str(dest)
+        except AttributeError:
+            # page.expect_download not available; fall through to threaded fallback
+            print("[WARN] page.expect_download() not available, falling back to threaded context.wait_for_event('download').")
+        except Exception as e:
+            print("[WARN] page.expect_download() attempt failed, trying fallback. Error:", e)
+
+        # ----------------------------
+        # Threaded fallback using context.wait_for_event('download')
+        # ----------------------------
+        ctx = page.context
+        download_result = {"download": None, "error": None}
+
+        def _wait_for_download():
+            try:
+                # This will block until download event or timeout
+                d = ctx.wait_for_event('download', timeout=timeout)
+                download_result["download"] = d
+            except Exception as ex:
+                download_result["error"] = ex
+
+        waiter = threading.Thread(target=_wait_for_download, daemon=True)
+        waiter.start()
+        # small grace to ensure waiter thread started and is listening
+        time.sleep(0.05)
+
+        # perform click
+        try:
             try:
                 el.click()
             except Exception:
                 try:
                     el.evaluate("el => el.click()")
-                except Exception as e:
-                    print("[ERROR] Could not click export element:", e)
-                    return None
+                except Exception:
+                    href = None
+                    try:
+                        href = el.get_attribute('href')
+                    except Exception:
+                        href = None
+                    if href:
+                        page.evaluate("url => window.open(url, '_blank')", href)
+                    else:
+                        raise
+        except Exception as e:
+            print("[ERROR] Could not click export element (threaded fallback):", e)
+            # make sure thread finishes
+            waiter.join(timeout=0.1)
+            return None
 
-        download = download_ctx.value
-        suggested = download.suggested_filename or "export.xls"
-        # ensure save dir exists
-        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        # wait for the waiter thread to capture the download (bounded by timeout)
+        waiter.join(timeout=(timeout / 1000.0) + 1.0)
 
-        # build destination name using optional prefix + timestamp to avoid collisions
+        if download_result.get("error"):
+            print("[ERROR] download listener reported an error:", download_result["error"])
+            _dump_debug(page)
+            return None
+
+        download_obj = download_result.get("download")
+        if not download_obj:
+            print("[ERROR] No download event captured by fallback listener. Dumping debug.")
+            _dump_debug(page)
+            return None
+
+        suggested = getattr(download_obj, "suggested_filename", None) or "export.xls"
         ts = datetime.now().strftime("%Y%m%d%H%M%S")
-        prefix = filename_prefix or ""
-        dest_name = f"{prefix}{ts}_{suggested}"
+        dest_name = f"{filename_prefix or ''}{ts}_{suggested}"
         dest = Path(save_dir) / dest_name
-
-        download.save_as(str(dest))
-        print(f"[SUCCESS] Download saved to: {dest}")
-        return str(dest)
+        try:
+            download_obj.save_as(str(dest))
+            print(f"[SUCCESS] Download saved to: {dest} (fallback path)")
+            return str(dest)
+        except Exception as e:
+            print("[ERROR] Could not save download to disk (fallback):", e)
+            _dump_debug(page)
+            return None
 
     except Exception as e:
-        print("[ERROR] Exception during export_xls_and_save:", e)
+        print("[ERROR] Exception during export_xls_and_save (outer):", e)
         traceback.print_exc()
         try:
             _dump_debug(page)
@@ -1048,9 +1139,35 @@ def process_and_save_current_page(page, processed: set, csv_path: str, cols_orde
             continue
         print(f"[INFO] Opening URL {idx}/{len(urls)}: {url}")
         try:
-            new_page = page.context.new_page()
+            new_page = None
+            # Prefer to open using window.open from the original page -> preserves session and referrer
             try:
-                new_page.goto(url, timeout=30000)
+                with page.context.expect_page(timeout=8000) as new_page_ctx:
+                    page.evaluate("url => window.open(url, '_blank')", url)
+                new_page = new_page_ctx.value
+            except Exception:
+                # Fallback: create a new page in same context and goto the url
+                try:
+                    new_page = page.context.new_page()
+                    new_page.goto(url, timeout=30000)
+                except Exception:
+                    try:
+                        if new_page:
+                            new_page.close()
+                    except Exception:
+                        pass
+                    new_page = None
+
+            if not new_page:
+                print("[WARN] Could not open URL in a new tab; trying to open in-place via navigation on current page")
+                try:
+                    page.goto(url, timeout=30000)
+                    extraction_target = page
+                except Exception:
+                    print("[ERROR] Could not navigate to URL in-place either; skipping")
+                    continue
+            else:
+                extraction_target = new_page
                 try:
                     new_page.wait_for_load_state("load", timeout=20000)
                 except Exception:
@@ -1058,15 +1175,16 @@ def process_and_save_current_page(page, processed: set, csv_path: str, cols_orde
                         new_page.wait_for_load_state("networkidle", timeout=20000)
                     except Exception:
                         pass
-            except Exception:
-                pass
 
-            extraction_target = new_page
             try:
-                for f in getattr(new_page, 'frames', []):
-                    if f.query_selector('#span_vDENOMINACION') or f.query_selector('[id*="CTLEFACCFETOTALMONTOTOTAL"]'):
-                        extraction_target = f
-                        break
+                # If content is in a frame, find a good frame
+                for f in getattr(extraction_target, 'frames', []):
+                    try:
+                        if f.query_selector('#span_vDENOMINACION') or f.query_selector('[id*="CTLEFACCFETOTALMONTOTOTAL"]'):
+                            extraction_target = f
+                            break
+                    except Exception:
+                        continue
             except Exception:
                 pass
 
@@ -1095,13 +1213,15 @@ def process_and_save_current_page(page, processed: set, csv_path: str, cols_orde
                 print("[ERROR] Could not append row:", e)
 
             try:
-                new_page.close()
+                if new_page and new_page is not page:
+                    new_page.close()
             except Exception:
                 pass
         except Exception as e:
             print("[ERROR] Error opening URL:", url, e)
             try:
-                new_page.close()
+                if new_page and new_page is not page:
+                    new_page.close()
             except Exception:
                 pass
             continue
@@ -1230,61 +1350,116 @@ def _normalize_date_for_folder(s: str) -> str:
     # fallback sanitize
     return re.sub(r"[^\d\-]", "-", s)
 
+
+def _period_string(from_s: str, to_s: str) -> str:
+    """
+    Build period string like '2025_7_1-2025_7_31' based on config dates.
+    If both empty -> 'ALL'
+    """
+    def parse_date(s):
+        if not s:
+            return None
+        fmts = ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y", "%m/%d/%Y"]
+        for f in fmts:
+            try:
+                return datetime.strptime(s.strip(), f)
+            except Exception:
+                pass
+        # fallback: try to extract 3 numbers
+        parts = re.findall(r'\d+', s)
+        if len(parts) >= 3:
+            if len(parts[0]) == 4:
+                y, m, d = parts[0], parts[1], parts[2]
+            else:
+                d, m, y = parts[0], parts[1], parts[2]
+            try:
+                return datetime(int(y), int(m), int(d))
+            except Exception:
+                return None
+        return None
+
+    d1 = parse_date(from_s)
+    d2 = parse_date(to_s)
+    if d1 and d2:
+        return f"{d1.year}_{d1.month}_{d1.day}-{d2.year}_{d2.month}_{d2.day}"
+    if d1 and not d2:
+        return f"{d1.year}_{d1.month}_{d1.day}-"
+    if d2 and not d1:
+        return f"-{d2.year}_{d2.month}_{d2.day}"
+    return "ALL"
+
+
 def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_file: str = "results.xlsx", parent_selector: Optional[str]=None,
                            do_post_action: bool = True, max_pages: Optional[int] = None) -> str:
     """
     Main function: find document links in the grid (or using link_selector),
     extract fields and save incrementally to CSV/Excel for each page, and paginate by clicking Next in-place.
-    Returns output_file path on success (Excel if able to write, otherwise CSV).
 
-    NEW behavior: output structure:
-      <base_dir>/
-         <RUT>/                        <-- folder named exactly as config.RUT
-            result.csv
-            result.xlsx
-            <DD-MM-YYYY_to_DD-MM-YYYY>/  <-- duration folder (created from ECF_FROM_DATE and ECF_TO_DATE)
-                exported files (all XLS/XLSX downloads for the run)
+    Saves outputs inside:
+      <OUTPUT_DIR>/<PROCESS_NAME>/<RUT>/
+         result.csv
+         <Process>_<RUT>_Excel_TODOS_<period>[_pN].xlsx   <- downloaded export(s) (renamed)
+         <Process>_<RUT>_Apertura_TODOS_<period>.xlsx    <- final output (Apertura)
     """
     print("[INFO] Starting collection (in-place pagination + immediate extraction).")
 
-    # base directory where OUTPUT_FILE normally lives
-    base_dir = os.path.dirname(output_file) or "."
+    # Detect process name from page (title) or fallback to config.PROCESS_NAME
+    process_name_raw = None
+    try:
+        # look for the specific title span used in the UI
+        sel_candidates = [
+            'span.TextBlock_TitleExt#W0006TITULO',
+            'span#W0006TITULO',
+            'span.TextBlock_TitleExt',
+            'span[id*="TITULO"]',
+            'h1', 'h2'
+        ]
+        frames = [page] + list(page.frames)
+        for p in frames:
+            for s in sel_candidates:
+                try:
+                    el = p.query_selector(s)
+                except Exception:
+                    el = None
+                if el:
+                    try:
+                        t = el.inner_text().strip()
+                        if t:
+                            process_name_raw = t
+                            break
+                    except Exception:
+                        pass
+            if process_name_raw:
+                break
+    except Exception:
+        process_name_raw = None
+
+    process_name_raw = process_name_raw or getattr(config, "PROCESS_NAME", "CFERecibidos")
+    # sanitize process name to safe filesystem base (remove spaces/unsafe chars)
+    process_base = re.sub(r'[^\w]+', '', process_name_raw) or getattr(config, "PROCESS_NAME", "CFERecibidos")
+
+    output_root = getattr(config, "OUTPUT_DIR", "DGI") or "DGI"
     rut_val = str(getattr(config, "RUT", "")).strip() or "unknown_rut"
-    rut_dir = os.path.join(base_dir, rut_val)
+    rut_dir = os.path.join(output_root, process_base, rut_val)
     os.makedirs(rut_dir, exist_ok=True)
 
-    # build duration folder name
-    d_from_raw = getattr(config, "ECF_FROM_DATE", "") or ""
-    d_to_raw = getattr(config, "ECF_TO_DATE", "") or ""
-    if d_from_raw and d_to_raw:
-        d_from_norm = _normalize_date_for_folder(d_from_raw)
-        d_to_norm = _normalize_date_for_folder(d_to_raw)
-        duration_folder_name = f"{d_from_norm}_to_{d_to_norm}"
-    elif d_from_raw:
-        duration_folder_name = f"from_{_normalize_date_for_folder(d_from_raw)}"
-    elif d_to_raw:
-        duration_folder_name = f"to_{_normalize_date_for_folder(d_to_raw)}"
-    else:
-        duration_folder_name = "all_dates"
+    period = _period_string(getattr(config, "ECF_FROM_DATE", ""), getattr(config, "ECF_TO_DATE", ""))
 
-    duration_dir = os.path.join(rut_dir, duration_folder_name)
-    os.makedirs(duration_dir, exist_ok=True)
-
-    # CSV/XLSX results will be saved directly under the rut_dir (not in duration folder)
     csv_path = os.path.join(rut_dir, "result.csv")
-    xlsx_path = os.path.join(rut_dir, "result.xlsx")
+    apertura_filename = f"{process_base}_{rut_val}_Apertura_TODOS_{period}.xlsx"
+    apertura_path = os.path.join(rut_dir, apertura_filename)
 
     # load processed URLs from existing outputs (Excel or CSV) using h_source_url
     processed = set()
-    if os.path.exists(xlsx_path):
+    if os.path.exists(apertura_path):
         try:
-            existing_df = pd.read_excel(xlsx_path)
+            existing_df = pd.read_excel(apertura_path)
             if "h_source_url" in existing_df.columns:
                 for u in existing_df["h_source_url"].fillna("").astype(str):
                     processed.add(_canonicalize_url(u))
-            print(f"[INFO] Loaded {len(existing_df)} existing rows from {xlsx_path}.")
+            print(f"[INFO] Loaded {len(existing_df)} existing rows from {apertura_path}.")
         except Exception as e:
-            print("[WARN] Could not read existing Excel (will try CSV).", e)
+            print("[WARN] Could not read existing Apertura Excel (will try CSV).", e)
 
     if os.path.exists(csv_path):
         try:
@@ -1307,6 +1482,29 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
 
     rows_added = 0
     page_count = 0
+    download_counter = 1
+
+    def _move_and_rename_download(path_saved: str, idx: int = None) -> Optional[str]:
+        if not path_saved or not os.path.exists(path_saved):
+            return None
+        ext = os.path.splitext(path_saved)[1] or ".xlsx"
+        base_name = f"{process_base}_{rut_val}_Excel_TODOS_{period}"
+        if idx is not None:
+            base_name = f"{base_name}_p{idx}"
+        dest_name = f"{base_name}{ext}"
+        dest = os.path.join(rut_dir, dest_name)
+        counter = 1
+        final_dest = dest
+        while os.path.exists(final_dest):
+            final_dest = os.path.join(rut_dir, f"{base_name}_{counter}{ext}")
+            counter += 1
+        try:
+            shutil.move(path_saved, final_dest)
+            print(f"[INFO] Moved downloaded export to: {final_dest}")
+            return final_dest
+        except Exception as e:
+            print("[WARN] Could not move downloaded export:", e)
+            return path_saved
 
     # 1) Process current page first
     page_count += 1
@@ -1315,11 +1513,12 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
     rows_added += new_on_page
     print(f"[INFO] New rows from initial page: {new_on_page}")
 
-    # Export XLS for the current page (save into duration_dir)
+    # Export XLS for the current page (save into rut_dir then rename)
     try:
-        saved = export_xls_and_save(page, save_dir=duration_dir, filename_prefix=f"page{page_count}_")
+        saved = export_xls_and_save(page, save_dir=rut_dir, filename_prefix=f"page{page_count}_")
         if saved:
-            print(f"[INFO] Exported XLS saved at {saved}")
+            _move_and_rename_download(saved, idx=download_counter)
+            download_counter += 1
     except Exception as e:
         print("[WARN] export_xls failed:", e)
 
@@ -1348,15 +1547,14 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
         rows_added += new_on_page
         print(f"[INFO] New rows from page {page_count}: {new_on_page}")
 
-        # Export XLS for this page as well (saved into duration_dir)
+        # Export XLS for this page as well (saved into rut_dir)
         try:
-            saved = export_xls_and_save(page, save_dir=duration_dir, filename_prefix=f"page{page_count}_")
+            saved = export_xls_and_save(page, save_dir=rut_dir, filename_prefix=f"page{page_count}_")
             if saved:
-                print(f"[INFO] Exported XLS saved at {saved}")
+                _move_and_rename_download(saved, idx=download_counter)
+                download_counter += 1
         except Exception as e:
             print("[WARN] export_xls failed:", e)
-
-        # loop continues and will break if new_on_page==0 or max_pages reached
 
     # Final: try to write final Excel from CSV, dropping h_source_url for final report
     try:
@@ -1368,14 +1566,14 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
         if "Fecha de Emision" in final_df.columns:
             final_df["Fecha de Emision"] = final_df["Fecha de Emision"].fillna("").astype(str).apply(lambda s: s[:-1] if len(s) > 5 else "")
         try:
-            final_df.to_excel(xlsx_path, index=False)
-            print(f"[SUCCESS] Saved {len(final_df)} rows to {xlsx_path}")
-            result_path = xlsx_path
+            final_df.to_excel(apertura_path, index=False)
+            print(f"[SUCCESS] Saved {len(final_df)} rows to {apertura_path}")
+            result_path = apertura_path
         except PermissionError as pe:
-            ts_path = os.path.join(rut_dir, f"results_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx")
+            ts_path = os.path.join(rut_dir, f"{process_base}_{rut_val}_Apertura_TODOS_{period}_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx")
             try:
                 final_df.to_excel(ts_path, index=False)
-                print(f"[WARN] Could not overwrite {xlsx_path} (Permission denied). Saved Excel to {ts_path} instead.")
+                print(f"[WARN] Could not overwrite {apertura_path} (Permission denied). Saved Excel to {ts_path} instead.")
                 result_path = ts_path
             except Exception as e:
                 print("[ERROR] Could not save Excel fallback:", e)

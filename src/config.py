@@ -19,15 +19,18 @@ def _bool(v, default=False):
 
 # default values (read from environment if present)
 
-# Root output directory (new): will contain per-RUT folders
-OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
+# Top-level output directory (per your request)
+OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'DGI')
+
+# Process name (second folder). If page provides a title we'll prefer that at runtime.
+PROCESS_NAME = os.getenv('PROCESS_NAME', 'CFERecibidos')
 
 # Backwards-compatible single-file output path.
-# If not provided explicitly, it will be placed inside OUTPUT_DIR.
 _tmp_output_file = os.getenv('OUTPUT_FILE', None)
 if _tmp_output_file:
     OUTPUT_FILE = _tmp_output_file
 else:
+    # default fallback; actual run will create files under OUTPUT_DIR/PROCESS_NAME/RUT/
     OUTPUT_FILE = os.path.join(OUTPUT_DIR, 'results.xlsx')
 
 RUT = os.getenv('RUT', '')
@@ -51,7 +54,7 @@ def override_from_dict(d: dict):
     Apply overrides at runtime (in-memory). Does not write .env file.
     Keys should match the uppercase config names.
     """
-    global OUTPUT_DIR, OUTPUT_FILE, HEADLESS, MAX_PAGES
+    global OUTPUT_DIR, OUTPUT_FILE, HEADLESS, MAX_PAGES, PROCESS_NAME
 
     for k, v in d.items():
         if v is None:
