@@ -26,9 +26,9 @@ from src import selectors as sel
 EMBEDDED_DEFAULTS = {
     "RUT": "213624850018",
     "CLAVE": "aa0000aa",
-    "ECF_TIPO": "121",
+    "ECF_TIPO": "0",
     "ECF_FROM_DATE": "01/07/2025",
-    "ECF_TO_DATE": "20/07/2025",
+    "ECF_TO_DATE": "30/07/2025",
 }
 
 '''
