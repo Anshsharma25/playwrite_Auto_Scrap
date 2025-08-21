@@ -1389,18 +1389,39 @@ def _period_string(from_s: str, to_s: str) -> str:
     return "ALL"
 
 
+def _compute_month_folder(from_s: Optional[str], to_s: Optional[str]) -> str:
+    """
+    Compute month folder in format MM_YYYY.
+    Prefer from_s, then to_s, otherwise today's month.
+    """
+    def parse_first(s):
+        if not s:
+            return None
+        fmts = ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y", "%m/%d/%Y"]
+        for f in fmts:
+            try:
+                return datetime.strptime(s.strip(), f)
+            except Exception:
+                pass
+        parts = re.findall(r'\d+', s)
+        if len(parts) >= 3:
+            if len(parts[0]) == 4:
+                y, m, d = parts[0], parts[1], parts[2]
+            else:
+                d, m, y = parts[0], parts[1], parts[2]
+            try:
+                return datetime(int(y), int(m), int(d))
+            except Exception:
+                pass
+        return None
+
+    d = parse_first(from_s) or parse_first(to_s) or datetime.now()
+    return d.strftime("%m_%Y")
+
+
 def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_file: str = "results.xlsx", parent_selector: Optional[str]=None,
                            do_post_action: bool = True, max_pages: Optional[int] = None) -> str:
-    """
-    Main function: find document links in the grid (or using link_selector),
-    extract fields and save incrementally to CSV/Excel for each page, and paginate by clicking Next in-place.
 
-    Saves outputs inside:
-      <OUTPUT_DIR>/<PROCESS_NAME>/<RUT>/
-         result.csv
-         <Process>_<RUT>_Excel_TODOS_<period>[_pN].xlsx   <- downloaded export(s) (renamed)
-         <Process>_<RUT>_Apertura_TODOS_<period>.xlsx    <- final output (Apertura)
-    """
     print("[INFO] Starting collection (in-place pagination + immediate extraction).")
 
     # Detect process name from page (title) or fallback to config.PROCESS_NAME
@@ -1440,7 +1461,11 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
 
     output_root = getattr(config, "OUTPUT_DIR", "DGI") or "DGI"
     rut_val = str(getattr(config, "RUT", "")).strip() or "unknown_rut"
-    rut_dir = os.path.join(output_root, process_base, rut_val)
+
+    # Compute month folder (MM_YYYY) based on dates or today
+    month_folder = _compute_month_folder(getattr(config, "ECF_FROM_DATE", None), getattr(config, "ECF_TO_DATE", None))
+
+    rut_dir = os.path.join(output_root, process_base, rut_val, month_folder)
     os.makedirs(rut_dir, exist_ok=True)
 
     period = _period_string(getattr(config, "ECF_FROM_DATE", ""), getattr(config, "ECF_TO_DATE", ""))
@@ -1485,12 +1510,11 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
     download_counter = 1
 
     def _move_and_rename_download(path_saved: str, idx: int = None) -> Optional[str]:
+        # Do not append page number suffix as requested.
         if not path_saved or not os.path.exists(path_saved):
             return None
         ext = os.path.splitext(path_saved)[1] or ".xlsx"
         base_name = f"{process_base}_{rut_val}_Excel_TODOS_{period}"
-        if idx is not None:
-            base_name = f"{base_name}_p{idx}"
         dest_name = f"{base_name}{ext}"
         dest = os.path.join(rut_dir, dest_name)
         counter = 1
@@ -1517,7 +1541,7 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
     try:
         saved = export_xls_and_save(page, save_dir=rut_dir, filename_prefix=f"page{page_count}_")
         if saved:
-            _move_and_rename_download(saved, idx=download_counter)
+            moved = _move_and_rename_download(saved, idx=download_counter)
             download_counter += 1
     except Exception as e:
         print("[WARN] export_xls failed:", e)
@@ -1551,7 +1575,7 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
         try:
             saved = export_xls_and_save(page, save_dir=rut_dir, filename_prefix=f"page")
             if saved:
-                _move_and_rename_download(saved, idx=download_counter)
+                moved = _move_and_rename_download(saved, idx=download_counter)
                 download_counter += 1
         except Exception as e:
             print("[WARN] export_xls failed:", e)
@@ -1583,7 +1607,29 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
         print("[ERROR] Could not convert CSV to Excel / read CSV:", e)
         print("[INFO] Leaving incremental CSV at:", csv_path)
         result_path = csv_path
-        os.remove("result.csv" , "result.xlxs")
+
+    # Remove intermediate CSV and intermediate XLS (if created) but keep final apertura_path
+    try:
+        # delete the CSV if exists
+        if os.path.exists(csv_path):
+            try:
+                os.remove(csv_path)
+                print(f"[INFO] Removed intermediate CSV: {csv_path}")
+            except Exception as e:
+                print("[WARN] Could not remove intermediate CSV:", e)
+
+        # remove intermediate xlsx created with same base name as csv (but not the apertura_path)
+        inter_xlsx = os.path.splitext(csv_path)[0] + ".xlsx"
+        if os.path.exists(inter_xlsx):
+            # ensure we don't delete final apertura file (which may have similar name)
+            try:
+                if os.path.abspath(inter_xlsx) != os.path.abspath(apertura_path):
+                    os.remove(inter_xlsx)
+                    print(f"[INFO] Removed intermediate XLSX: {inter_xlsx}")
+            except Exception as e:
+                print("[WARN] Could not remove intermediate XLSX:", e)
+    except Exception as e:
+        print("[WARN] Cleanup of intermediate files failed:", e)
 
     # ---- After finishing collection, optionally navigate back to consulta and refill the same details ----
     if do_post_action:
@@ -1604,4 +1650,3 @@ def collect_cfe_from_links(page, link_selector: Optional[str] = None, output_fil
             pass
 
     return result_path
-    
