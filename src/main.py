@@ -32,32 +32,31 @@ EMBEDDED_DEFAULTS = {
 }
 
 '''
-++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-Todos  == 0 ,
-e-Ticket == 101
-Nota de Crédito de e-Ticket  = 102,
-Nota de Débito de e-Ticket = 103, 
-e-Factura = 111,
-Nota de Crédito de e-Factura = 112,
-Nota de Débito de e-Factura = 113,
-e-Factura de Exportación = 121,
-Nota de crédito de e-Factura de Exportación=122,
-Nota de débito de e-Factura de Exportación = 123,
-e-Remito de Exportación = 124 ,
-e-Ticket Venta por Cuenta Ajena = 131 ,
-Nota de Crédito de e-Ticket Venta por Cuenta Ajena = 132,
-Nota de Débito de e-Ticket Venta por Cuenta Ajena - 133,
-e-Factura Venta por Cuenta Ajena = 141,
-Nota de Crédito de e-Factura Venta por Cuenta Ajena = 142,
-Nota de Débito de e-Factura Venta por Cuenta Ajena = 143, 
-e-Boleta de entrada = 151
-Nota de Crédito de e-Boleta de entrada = 152,
-Nota de Débito de e-Boleta de entrada= 153,
-e-Remito = 181, 
-e-Resguardo 182
-++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Todos ==================================================================  0,
+e-Ticket =============================================================== 101
+Nota de Crédito de e-Ticket  =========================================== 102,
+Nota de Débito de e-Ticket ============================================= 103, 
+e-Factura ============================================================== 111,
+Nota de Crédito de e-Factura =========================================== 112,
+Nota de Débito de e-Factura ============================================ 113,
+e-Factura de Exportación================================================ 121,
+Nota de crédito de e-Factura de Exportación============================= 122,
+Nota de débito de e-Factura de Exportación ============================= 123,
+e-Remito de Exportación ================================================ 124,
+e-Ticket Venta por Cuenta Ajena ======================================== 131,
+Nota de Crédito de e-Ticket Venta por Cuenta Ajena ===================== 132,
+Nota de Débito de e-Ticket Venta por Cuenta Ajena -===================== 133,
+e-Factura Venta por Cuenta Ajena ======================================= 141,
+Nota de Crédito de e-Factura Venta por Cuenta Ajena ==================== 142,
+Nota de Débito de e-Factura Venta por Cuenta Ajena ===================== 143, 
+e-Boleta de entrada ==================================================== 151,
+Nota de Crédito de e-Boleta de entrada ================================= 152,
+Nota de Débito de e-Boleta de entrada=================================== 153,
+e-Remito =============================================================== 181, 
+e-Resguardo============================================================= 182
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 '''
-
 
 def parse_args():
     p = argparse.ArgumentParser(description="Run EFactura scraping job (main).")
