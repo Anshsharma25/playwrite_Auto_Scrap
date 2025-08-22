@@ -1,176 +1,254 @@
-# app.py
-import os
-import tempfile
+# # src/app.py
+# from flask import Flask, request, jsonify, render_template, Response
+# from types import SimpleNamespace
+# from datetime import datetime
+# import traceback
+
+# import src.main as main_mod
+
+# app = Flask(__name__, template_folder="templates", static_folder="static")
+
+
+# def _iso_to_ddmmyyyy(iso_date_str):
+#     """
+#     Convert YYYY-MM-DD to DD/MM/YYYY. If input empty -> None.
+#     """
+#     if not iso_date_str:
+#         return None
+#     try:
+#         d = datetime.fromisoformat(iso_date_str)
+#         return d.strftime("%d/%m/%Y")
+#     except Exception:
+#         parts = iso_date_str.split("-")
+#         if len(parts) >= 3:
+#             return f"{parts[2]}/{parts[1]}/{parts[0]}"
+#         return iso_date_str
+
+
+# @app.route("/", methods=["GET"])
+# def index():
+#     return render_template("index.html")
+
+
+# @app.route("/run", methods=["POST"])
+# def run_scraper():
+#     """
+#     Expects form fields from the frontend:
+#       - login_method: 'rut' or 'cedula'
+#       - rut / clave  OR cedula / clave_cedula
+#       - filter_code (mapped to ECF_TIPO)
+#       - from_date (YYYY-MM-DD) optional
+#       - to_date (YYYY-MM-DD) optional
+#     Returns: JSON { ok: bool, output: <path> } or { ok: False, error: <msg> }
+#     """
+#     try:
+#         fm = request.form or {}
+#         login_method = fm.get("login_method")
+#         if login_method == "rut":
+#             rut = fm.get("rut", "").strip()
+#             clave = fm.get("clave", "").strip()
+#         else:
+#             rut = fm.get("cedula", "").strip()
+#             clave = fm.get("clave_cedula", "").strip()
+
+#         filter_code = fm.get("filter_code", "").strip() or None
+#         from_date_iso = fm.get("from_date") or None
+#         to_date_iso = fm.get("to_date") or None
+
+#         # validate dates if provided
+#         if from_date_iso and to_date_iso:
+#             try:
+#                 d_from = datetime.fromisoformat(from_date_iso)
+#                 d_to = datetime.fromisoformat(to_date_iso)
+#             except Exception:
+#                 return jsonify({"ok": False, "error": "Invalid date format. Use YYYY-MM-DD."}), 400
+#             diff_days = (d_to - d_from).days + 1
+#             if diff_days <= 0:
+#                 return jsonify({"ok": False, "error": "ECF_TO_DATE must be same or after ECF_FROM_DATE."}), 400
+#             if diff_days > 30:
+#                 return jsonify({"ok": False, "error": "Date range too large: max allowed is 30 days."}), 400
+
+#         # build CLI-like namespace for main.run
+#         cli_args = SimpleNamespace(
+#             rut=rut or None,
+#             clave=clave or None,
+#             tipo=filter_code or None,
+#             from_date=_iso_to_ddmmyyyy(from_date_iso) if from_date_iso else None,
+#             to_date=_iso_to_ddmmyyyy(to_date_iso) if to_date_iso else None,
+#             max_pages=None,
+#             headless=None,
+#             show_browser=None
+#         )
+
+#         # Run synchronously, force headless on server
+#         res = main_mod.run(cli_args=cli_args, headless_forced=True)
+
+#         if res.get("ok"):
+#             return jsonify({"ok": True, "output": res.get("output")})
+#         else:
+#             return jsonify({"ok": False, "error": res.get("error") or "unknown"}), 500
+
+#     except Exception as e:
+#         traceback.print_exc()
+#         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# if __name__ == "__main__":
+#     # debug server for local dev (use gunicorn/uwsgi in production)
+#     app.run(host="0.0.0.0", port=5000, debug=True)
+
+# src/app.py
+from flask import Flask, request, jsonify, render_template, Response
+from types import SimpleNamespace
+from datetime import datetime
 import traceback
-from flask import Flask, request, render_template, jsonify
-import pandas as pd
-from pathlib import Path
-import importlib
-import src.config as config
-from src import main as cfe_main
+import uuid
+import time
 
-app = Flask(__name__, template_folder="templates")
+import src.main as main_mod
+from src.logger import logger
 
-ALLOWED_EXT = {'.txt', '.csv', '.xlsx', '.xls'}
+app = Flask(__name__, template_folder="templates", static_folder="static")
 
-def _parse_uploaded_file_to_dict(path: str) -> dict:
+
+def _iso_to_ddmmyyyy(iso_date_str):
     """
-    Parse a small XLSX or TXT/CSV file and return a dict of key->value.
-    For Excel: expects first sheet, first column = key, second column = value (header optional).
-    For TXT/CVS: expects lines like KEY=VALUE or comma separated key,value
+    Convert YYYY-MM-DD to DD/MM/YYYY. If input empty -> None.
     """
-    ext = Path(path).suffix.lower()
-    data = {}
+    if not iso_date_str:
+        return None
     try:
-        if ext in ('.xlsx', '.xls'):
-            df = pd.read_excel(path, header=None)
-            for _, row in df.iterrows():
-                if len(row) >= 2 and pd.notna(row[0]):
-                    key = str(row[0]).strip()
-                    val = '' if pd.isna(row[1]) else str(row[1]).strip()
-                    data[key] = val
-        else:
-            # txt/csv simple parsing
-            with open(path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith('#'):
-                        continue
-                    if '=' in line:
-                        k, v = line.split('=', 1)
-                        data[k.strip()] = v.strip()
-                    else:
-                        parts = [p.strip() for p in line.split(',') if p.strip()]
-                        if len(parts) >= 2:
-                            data[parts[0]] = parts[1]
+        d = datetime.fromisoformat(iso_date_str)
+        return d.strftime("%d/%m/%Y")
     except Exception:
-        traceback.print_exc()
-    return data
+        parts = iso_date_str.split("-")
+        if len(parts) >= 3:
+            return f"{parts[2]}/{parts[1]}/{parts[0]}"
+        return iso_date_str
 
-def _parse_date(s: str):
-    """Try to parse a date from common formats. Return datetime.date or None."""
+
+def _mask_sensitive(s: str, keep_left: int = 3, keep_right: int = 3):
     if not s:
-        return None
-    s = str(s).strip()
-    fmts = ['%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y', '%d.%m.%Y', '%m/%d/%Y']
-    for f in fmts:
-        try:
-            return pd.to_datetime(s, format=f).date()
-        except Exception:
-            continue
-    # fallback to pandas parsing
-    try:
-        return pd.to_datetime(s, dayfirst=True).date()
-    except Exception:
-        return None
+        return "(empty)"
+    s = str(s)
+    if len(s) <= (keep_left + keep_right):
+        return "*" * len(s)
+    return s[:keep_left] + "*" * (len(s) - keep_left - keep_right) + s[-keep_right:]
 
-@app.route('/')
+
+def _get_client_ip():
+    # Respect X-Forwarded-For if behind a proxy; otherwise remote_addr
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        # could be comma separated list
+        return xff.split(",")[0].strip()
+    return request.remote_addr or "unknown"
+
+
+@app.route("/", methods=["GET"])
 def index():
-    return render_template('index.html')
+    logger.info("Serving index.html")
+    return render_template("index.html")
 
-@app.route('/run', methods=['POST'])
+
+@app.route("/run", methods=["POST"])
 def run_scraper():
     """
-    Accepts an optional file upload containing key/value pairs (XLSX or TXT/CSV).
-    Also accepts form fields: rut, clave, from_date, to_date.
-    Applies overrides in-memory (does NOT write .env), validates date range (<=30 days),
-    forces HEADLESS True and runs the scraper synchronously (blocking).
-    Returns JSON with 'ok' and 'output' or 'error'.
+    Expects form fields from the frontend:
+      - login_method: 'rut' or 'cedula'
+      - rut / clave  OR cedula / clave_cedula
+      - filter_code (mapped to ECF_TIPO)
+      - from_date (YYYY-MM-DD) optional
+      - to_date (YYYY-MM-DD) optional
+
+    Logs:
+      - job_id
+      - timestamp start/end
+      - duration
+      - masked credentials
+      - client IP
+      - outcome and error trace if any
+
+    Returns JSON: { ok: bool, output: <path>, job_id: <uuid>, duration_sec: <float> }
     """
-    file = request.files.get('file')
-    temp_path = None
-    overrides = {}
+    job_id = str(uuid.uuid4())
+    client_ip = _get_client_ip()
+    received_at = datetime.utcnow().isoformat() + "Z"
 
-    # parse uploaded file if present
-    if file:
-        ext = Path(file.filename).suffix.lower()
-        if ext not in ALLOWED_EXT:
-            return jsonify({'ok': False, 'error': 'unsupported file type'}), 400
-        tmpdir = tempfile.mkdtemp()
-        temp_path = os.path.join(tmpdir, file.filename)
-        file.save(temp_path)
-        overrides = _parse_uploaded_file_to_dict(temp_path) or {}
-
-    # parse explicit form fields (they override file values)
-    form_rut = request.form.get('rut') or request.form.get('RUT')
-    form_clave = request.form.get('clave') or request.form.get('CLAVE')
-    form_from = request.form.get('from_date') or request.form.get('ECF_FROM_DATE') or request.form.get('from')
-    form_to = request.form.get('to_date') or request.form.get('ECF_TO_DATE') or request.form.get('to')
-
-    if form_rut:
-        overrides['RUT'] = form_rut.strip()
-    if form_clave:
-        overrides['CLAVE'] = form_clave.strip()
-    if form_from:
-        overrides['ECF_FROM_DATE'] = form_from.strip()
-    if form_to:
-        overrides['ECF_TO_DATE'] = form_to.strip()
+    logger.info(f"[{job_id}] Received /run request from {client_ip} at {received_at}")
 
     try:
-        # reload config and apply overrides in-memory (no .env write)
-        importlib.reload(config)
-        if overrides:
-            # normalize keys to expected uppercase keys
-            normalized = {}
-            for k, v in overrides.items():
-                if not k:
-                    continue
-                kk = str(k).strip()
-                vv = "" if v is None else str(v).strip()
-                if kk.lower() == "rut":
-                    normalized["RUT"] = vv
-                elif kk.lower() == "clave":
-                    normalized["CLAVE"] = vv
-                elif kk.lower() in ("ecf_from_date", "from", "from_date"):
-                    normalized["ECF_FROM_DATE"] = vv
-                elif kk.lower() in ("ecf_to_date", "to", "to_date"):
-                    normalized["ECF_TO_DATE"] = vv
-                elif kk.lower() == "ecf_tipo":
-                    # frontend is NOT supposed to override ECF_TIPO, but accept if provided intentionally
-                    normalized["ECF_TIPO"] = vv
-                elif kk == "MAX_PAGES":
-                    normalized["MAX_PAGES"] = vv
-                else:
-                    # keep any other keys
-                    normalized[kk] = vv
-            config.override_from_dict(normalized)
+        fm = request.form or {}
+        login_method = fm.get("login_method")
+        if login_method == "rut":
+            rut = fm.get("rut", "").strip()
+            clave = fm.get("clave", "").strip()
+        else:
+            rut = fm.get("cedula", "").strip()
+            clave = fm.get("clave_cedula", "").strip()
 
-        # simple required check: RUT and CLAVE must be present (frontend must supply)
-        cur_rut = getattr(config, "RUT", "") or ""
-        cur_clave = getattr(config, "CLAVE", "") or ""
-        if not cur_rut or not cur_clave:
-            return jsonify({'ok': False, 'error': 'RUT and CLAVE required (provide via file or form fields).'}), 400
+        filter_code = fm.get("filter_code", "").strip() or None
+        from_date_iso = fm.get("from_date") or None
+        to_date_iso = fm.get("to_date") or None
 
-        # Validate dates before launching browser
-        d_from_s = getattr(config, "ECF_FROM_DATE", "") or ""
-        d_to_s = getattr(config, "ECF_TO_DATE", "") or ""
-        d_from = _parse_date(d_from_s)
-        d_to = _parse_date(d_to_s)
-        if d_from and d_to:
-            delta = (d_to - d_from).days
-            if delta < 0:
-                return jsonify({'ok': False, 'error': 'ECF_TO_DATE is earlier than ECF_FROM_DATE'}), 400
-            if delta > 30:
-                return jsonify({'ok': False, 'error': 'Date range too large: max allowed is 30 days'}), 400
+        # Log sanitized inputs (mask secrets)
+        logger.info(
+            f"[{job_id}] Inputs: login_method={login_method or 'none'}, "
+            f"rut={_mask_sensitive(rut)}, clave={_mask_sensitive(clave)}, "
+            f"filter_code={filter_code or '(none)'}, from_date={from_date_iso or '(none)'}, to_date={to_date_iso or '(none)'}"
+        )
 
-        # Ensure HEADLESS enforced (do not open visible browser from web server)
-        config.HEADLESS = True
-        os.environ['HEADLESS'] = "true"
+        # validate dates if provided
+        if from_date_iso and to_date_iso:
+            try:
+                d_from = datetime.fromisoformat(from_date_iso)
+                d_to = datetime.fromisoformat(to_date_iso)
+            except Exception:
+                logger.info(f"[{job_id}] Date parsing failed for inputs: from={from_date_iso} to={to_date_iso}")
+                return jsonify({"ok": False, "error": "Invalid date format. Use YYYY-MM-DD.", "job_id": job_id}), 400
+            diff_days = (d_to - d_from).days + 1
+            if diff_days <= 0:
+                logger.info(f"[{job_id}] Invalid date range: from {from_date_iso} to {to_date_iso}")
+                return jsonify({"ok": False, "error": "ECF_TO_DATE must be same or after ECF_FROM_DATE.", "job_id": job_id}), 400
+            if diff_days > 30:
+                logger.info(f"[{job_id}] Date range too large: {diff_days} days")
+                return jsonify({"ok": False, "error": "Date range too large: max allowed is 30 days.", "job_id": job_id}), 400
 
-        # Run scraper synchronously
-        try:
-            cfe_main.run()
-        except ValueError as ve:
-            # Known validation errors (login failure etc) -> return 400 with message
-            return jsonify({'ok': False, 'error': str(ve)}), 400
+        # build CLI-like namespace for main.run
+        cli_args = SimpleNamespace(
+            rut=rut or None,
+            clave=clave or None,
+            tipo=filter_code or None,
+            from_date=_iso_to_ddmmyyyy(from_date_iso) if from_date_iso else None,
+            to_date=_iso_to_ddmmyyyy(to_date_iso) if to_date_iso else None,
+            max_pages=None,
+            headless=None,
+            show_browser=None
+        )
 
-        output_file = getattr(config, 'OUTPUT_FILE', None)
-        return jsonify({'ok': True, 'output': output_file})
+        # Start timer
+        start_ts = time.time()
+        logger.info(f"[{job_id}] Starting job (headless forced).")
+
+        # Run synchronously, force headless on server
+        res = main_mod.run(cli_args=cli_args, headless_forced=True)
+
+        duration = time.time() - start_ts
+        if res.get("ok"):
+            logger.info(f"[{job_id}] Job finished successfully in {duration:.2f}s. Output: {res.get('output')}")
+            return jsonify({"ok": True, "output": res.get("output"), "job_id": job_id, "duration_sec": round(duration, 2)})
+        else:
+            logger.error(f"[{job_id}] Job failed in {duration:.2f}s. Error: {res.get('error')}")
+            return jsonify({"ok": False, "error": res.get("error") or "unknown", "job_id": job_id, "duration_sec": round(duration, 2)}), 500
+
     except Exception as e:
-        traceback.print_exc()
-        return jsonify({'ok': False, 'error': 'Internal Server Error (check logs)'}), 500
+        duration = time.time() - start_ts if 'start_ts' in locals() else None
+        logger.exception(f"[{job_id}] Unhandled exception while processing job. duration={duration}")
+        return jsonify({"ok": False, "error": str(e), "job_id": job_id}), 500
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Render provides PORT
-    app.run(host="0.0.0.0", port=port, debug=False)
+    # debug server for local dev (use gunicorn/uwsgi in production)
+    logger.info("Starting Flask app (development mode)")
+    app.run(host="0.0.0.0", port=5000, debug=True)
+
