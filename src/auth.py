@@ -559,6 +559,8 @@ def _extract_fields_from_page(p):
         "Monto Exportacion y Asimilados": ["#span_CTLEFACCFETOTALMNTEXPASI", '[id*="TOTALMONTONOGRV"]'],
         "Monto Impuesto Percibido": ["#span_CTLEFACCFETOTALMNTIMPPER", '[id*="TOTALMNTIMPPER"]'],
         "Monto  IVA en suspenso": ["#span_CTLEFACCFETOTALMNTIVASUSP", '[id*="TOTALMNTIVASUSP"]'],
+        "Iva Tasa Basica": ["#span_CTLEFACCFETOTALIVATASABASICA", '[id*="TOTALIVATASABASICA"]'],
+        "Iva Tasa Minima": ["#span_CTLEFACCFETOTALIVATASAMIN", '[id*="TOTALIVATASAMIN"]'],
         "Neto Iva Tasa Basica": ["#span_CTLEFACCFETOTALMNTNETOIVATTB", '[id*="TOTALMNTNETOIVATTB"]'],
         "Neto Iva Tasa Minima": ["#span_CTLEFACCFETOTALMNTNETOIVATTM", '[id*="TOTALMNTNETOIVATTM"]'],
         "Neto Iva Otra Tasa": ["#span_CTLEFACCFETOTALMNTNETOIVATTO", '[id*="TOTALMNTNETOIVATTO"]'],
@@ -567,8 +569,6 @@ def _extract_fields_from_page(p):
         "Monto Credito Fiscal": ["#span_CTLEFACCFETOTALMONTCREDFISC", '[id*="TOTALMONTCREDFISC"]'],
         "Monto No facturable": ["#span_CTLEFACCFEMONTONOFACT", '[id*="MONTONOFACT"]'],
         "Monto Total a Pagar": ["#span_CTLEFACCFETOTALMNTAPAGAR", '[id*="TOTALMNTAPAGAR"]'],
-        "Iva Tasa Basica": ["#span_CTLEFACCFETOTALIVATASABASICA", '[id*="TOTALIVATASABASICA"]'],
-        "Iva Tasa Minima": ["#span_CTLEFACCFETOTALIVATASAMIN", '[id*="TOTALIVATASAMIN"]'],
         "Iva Otra Tasa": ['#span_CTLEFACCFETOTALIVAOTRATASA', '[id*="TOTALIVAOTRATASA"]'],
     }
 

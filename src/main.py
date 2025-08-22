@@ -597,6 +597,10 @@ def run(cli_args=None, headless_forced=None):
         print("[ERROR] Unexpected failure during run:", e)
         return {"ok": False, "error": str(e)}
 
+#m k baad 
+#Iva Tasa Basica
+#n k baad
+#Iva Tasa Minima
 
 if __name__ == "__main__":
     res = run()
