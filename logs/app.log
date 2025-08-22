@@ -5,3 +5,35 @@
 2025-08-22 12:33:40,831 | INFO    | cfe_scraper | [90f46a63-6f6e-4eaa-94e7-de9e80c37234] Inputs: login_method=rut, rut=213******018, clave=aa0**0aa, filter_code=0, from_date=2025-06-09, to_date=2025-06-30
 2025-08-22 12:33:40,831 | INFO    | cfe_scraper | [90f46a63-6f6e-4eaa-94e7-de9e80c37234] Starting job (headless forced).
 2025-08-22 12:38:49,845 | INFO    | cfe_scraper | [90f46a63-6f6e-4eaa-94e7-de9e80c37234] Job finished successfully in 309.01s. Output: DGI\CFERecibidos\213624850018\06_2025\CFERecibidos_213624850018_Apertura_TODOS_2025_6_9-2025_6_30.xlsx
+2025-08-22 15:02:09,321 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:02:10,091 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:02:23,510 | INFO    | cfe_scraper | Serving index.html
+2025-08-22 15:02:54,094 | INFO    | cfe_scraper | [ecdd06fd-3b19-4e17-9051-3ded1dbd2bd8] Received /run request from 127.0.0.1 at 2025-08-22T09:32:54.092616Z
+2025-08-22 15:02:54,125 | INFO    | cfe_scraper | [ecdd06fd-3b19-4e17-9051-3ded1dbd2bd8] Inputs: login_method=rut, rut=213******018, clave=aa0**0aa, filter_code=0, from_date=2025-06-09, to_date=2025-06-30
+2025-08-22 15:02:54,134 | INFO    | cfe_scraper | [ecdd06fd-3b19-4e17-9051-3ded1dbd2bd8] Starting job (headless forced).
+2025-08-22 15:02:57,756 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:03:32,526 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:03:33,240 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:03:37,894 | INFO    | cfe_scraper | Serving index.html
+2025-08-22 15:04:22,839 | INFO    | cfe_scraper | [21f933a0-1129-4fb6-9e1d-82e9c12687ea] Received /run request from 192.168.1.5 at 2025-08-22T09:34:22.839675Z
+2025-08-22 15:04:22,864 | INFO    | cfe_scraper | [21f933a0-1129-4fb6-9e1d-82e9c12687ea] Inputs: login_method=rut, rut=213******018, clave=aa0**0aa, filter_code=0, from_date=2025-08-01, to_date=2025-08-21
+2025-08-22 15:04:22,866 | INFO    | cfe_scraper | [21f933a0-1129-4fb6-9e1d-82e9c12687ea] Starting job (headless forced).
+2025-08-22 15:04:28,032 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:05:53,421 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:06:30,245 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:06:40,633 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:06:41,606 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:06:45,034 | INFO    | cfe_scraper | Serving index.html
+2025-08-22 15:07:08,421 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:07:27,299 | INFO    | cfe_scraper | [20fab5f2-cdcc-494c-aa98-78779070cc4d] Received /run request from 192.168.1.5 at 2025-08-22T09:37:27.299254Z
+2025-08-22 15:07:27,308 | INFO    | cfe_scraper | [20fab5f2-cdcc-494c-aa98-78779070cc4d] Inputs: login_method=rut, rut=213******018, clave=aa0**0aa, filter_code=0, from_date=2025-08-01, to_date=2025-08-21
+2025-08-22 15:07:27,308 | INFO    | cfe_scraper | [20fab5f2-cdcc-494c-aa98-78779070cc4d] Starting job (headless forced).
+2025-08-22 15:07:31,778 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:14:01,817 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:50:00,077 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:50:00,693 | INFO    | cfe_scraper | Starting Flask app (development mode)
+2025-08-22 15:50:12,405 | INFO    | cfe_scraper | Serving index.html
+2025-08-22 15:50:34,328 | INFO    | cfe_scraper | [de61c034-6d5b-418e-9374-10485d485f08] Received /run request from 127.0.0.1 at 2025-08-22T10:20:34.328590Z
+2025-08-22 15:50:34,334 | INFO    | cfe_scraper | [de61c034-6d5b-418e-9374-10485d485f08] Inputs: login_method=rut, rut=213******018, clave=aa0**0aa, filter_code=0, from_date=2025-06-09, to_date=2025-06-30
+2025-08-22 15:50:34,335 | INFO    | cfe_scraper | [de61c034-6d5b-418e-9374-10485d485f08] Starting job (headless forced).
+2025-08-22 15:55:32,185 | INFO    | cfe_scraper | [de61c034-6d5b-418e-9374-10485d485f08] Job finished successfully in 297.85s. Output: C:\Users\HP\Downloads\DGI\CFERecibidos\213624850018\06_2025\CFERecibidos_213624850018_Apertura_TODOS_2025_6_9-2025_6_30.xlsx

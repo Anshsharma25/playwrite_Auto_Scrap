@@ -11,16 +11,23 @@ if ENV_PATH.exists():
 else:
     load_dotenv(override=False)
 
+
 def _bool(v, default=False):
     if v is None:
         return default
     v = str(v).lower()
     return v in ("1", "true", "yes", "y", "on")
 
-# default values (read from environment if present)
 
-# Top-level output directory (per your request)
-OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'DGI')
+# ---------------------------
+# Default values (read from environment if present)
+# ---------------------------
+
+# System default Downloads folder
+DEFAULT_DOWNLOADS = str(Path.home() / "Downloads")
+
+# Top-level output directory
+OUTPUT_DIR = os.getenv('OUTPUT_DIR', os.path.join(DEFAULT_DOWNLOADS, 'DGI'))
 
 # Process name (second folder). If page provides a title we'll prefer that at runtime.
 PROCESS_NAME = os.getenv('PROCESS_NAME', 'CFERecibidos')
@@ -40,14 +47,16 @@ HEADLESS = _bool(os.getenv('HEADLESS', 'true'))
 ECF_TIPO = os.getenv('ECF_TIPO', '111')
 ECF_FROM_DATE = os.getenv('ECF_FROM_DATE', '')
 ECF_TO_DATE = os.getenv('ECF_TO_DATE', '')
+
 # downloads folder for browser downloads (separate from OUTPUT_DIR)
-DOWNLOAD_DIR = os.getenv('DOWNLOAD_DIR', 'downloads')
+DOWNLOAD_DIR = os.getenv('DOWNLOAD_DIR', os.path.join(DEFAULT_DOWNLOADS, 'browser_downloads'))
 
 # MAX_PAGES safe parsing
 try:
     MAX_PAGES = int(os.getenv('MAX_PAGES')) if os.getenv('MAX_PAGES') else None
 except Exception:
     MAX_PAGES = None
+
 
 def override_from_dict(d: dict):
     """
